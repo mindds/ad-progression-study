@@ -1,0 +1,291 @@
+---
+title: "Figure 4"
+author: "Rojashree Jayakumar"
+date: "2022-09-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# load required packages
+require(data.table)
+require(future)
+require(tidyverse)
+require(ggpubr)
+
+# directories 
+data_dir = file.path("..", "Data")
+rdir = file.path("..", "Results")
+source("../Helper_scripts/figure_themes.R")
+
+```
+
+
+Read file  - run on GPU/cluster
+```{r}
+load(file.path(data_dir, "Rdata", "ast_all.brain.regions_cluster.group_removed.Rdata"))
+```
+
+
+Calculate average  - run on GPU/cluster
+```{r}
+Idents(merged) = paste(merged$Donor.ID, merged$Unified_region, sep = "_")
+ave.exp = AverageExpression(merged, slot = "data", assays = "RNA")
+ave.exp = ave.exp$RNA %>% 
+  as.data.frame() %>%
+  rownames_to_column("gene") %>%
+  as.data.table()
+```
+
+Modifying the data  - run on GPU/cluster
+```{r}
+ave.exp_dt = melt(ave.exp, id.vars = "gene", variable.name = "donor_region", value.name = "ave.exp")
+ave.exp_dt[, ids := str_split(donor_region, "_")]
+ave.exp_dt[, Donor.ID := map(ids, ~(.x[1])) %>% unlist()]
+ave.exp_dt[, Unified_region := map(ids, ~(.x[2])) %>% unlist()]
+ave.exp_dt[, ids := NULL]
+ave.exp_dt[, Region := factor(Unified_region, levels = c("EC", "BA20", "BA46", "V2", "V1"))]
+ave.exp_dt[, Region := factor(Region, labels = c("EC", "ITG", "PFC", "V2", "V1"))]
+# table(ave.exp_dt$Region, ave.exp_dt$Unified_region)
+save(ave.exp_dt, file = file.path(rdata_dir, "ast_sample.level.average.expression_filtered.Rdata"))
+```
+
+
+
+Perform differential expression - run on GPU/cluster
+
+
+```{r}
+DefaultAssay(merged)<- "RNA"
+Idents(merged) <- "Path..Group."
+
+
+p4vsp3 <- FindMarkers(merged, ident.1 = "4", ident.2 = "3", test.use = "LR", latent.vars = "Unified_region")
+
+p3vsp2 <- FindMarkers(merged, ident.1 = "3", ident.2 = "2", test.use = "LR", latent.vars = "Unified_region")
+
+p2vsp1 <- FindMarkers(merged, ident.1 = "2", ident.2 = "1", test.use = "LR", latent.vars = "Unified_region")
+
+setDT(p4vsp3, keep.rownames = TRUE)
+setDT(p3vsp2, keep.rownames = TRUE)
+setDT(p2vsp1, keep.rownames = TRUE)
+
+#fwrite (P4vsP3,"/autofs/space/mindds_001/projects/AbbvieSnRNASeq/results/Traj_endothelial/P4vsP3.csv" )
+#fwrite (P3vsP2,"/autofs/space/mindds_001/projects/AbbvieSnRNASeq/results/Traj_endothelial/P3vsP2.csv" )
+#fwrite (P2vsP1,"/autofs/space/mindds_001/projects/AbbvieSnRNASeq/results/Traj_endothelial/P2vsP1.csv" )
+```
+
+
+
+```{r}
+load(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Traj_endothelial/end_sample.level.average.expression_filtered.Rdata"))
+
+#check if same meta can be used
+getwd()
+ind_meta = fread(file.path("..", "Data","Fig1_data", "Abbvie_AD_progression_meta.csv")) 
+ind_meta = ind_meta[, c("Donor.ID", "Path..Group.")] %>%
+  unique()
+ind_meta[ , Donor.ID := as.character(Donor.ID)]
+
+ave.exp_dt[ind_meta, on = .(Donor.ID), path_group := i.Path..Group.]
+ave.exp_dt[, zscore_gene := scale(ave.exp), by = .(gene)]
+ave.exp_dt_path = ave.exp_dt[, .(ave_zscore_path = mean(zscore_gene)), by = .(gene, path_group)]
+
+#ggplot(ave.exp_dt_path, aes(x = path_group, y = ave_zscore_path)) +
+#  geom_point()
+
+
+gt_TT_clustering = function(dt, k = 6, seed = 9){
+  # dt = ave.exp_dt_hvgs[path_group %in% sel_path_group, ]
+  mtx = dt[, .(gene, ave_zscore_path, path_group)] %>% unique()
+  mtx = dcast(mtx, gene ~ path_group, value.var = "ave_zscore_path")
+  mtx = mtx %>% as.data.frame() %>%
+    column_to_rownames("gene") %>% 
+    as.matrix()
+  
+  library(SNFtool)
+  set.seed(seed)
+
+  diss_mtx = dist(mtx)
+  ## compute similarity matrix as done in paper
+  sim_mtx = 1-as.matrix(diss_mtx)/max(diss_mtx)
+ 
+  # uses code from the Similarity Network Fusion Paper
+  clust = SNFtool::spectralClustering(sim_mtx, K = k) # where kVal is the number of clusters you would like to partition
+  clustLab = as.factor(clust)
+  annot = data.table(gene = rownames(mtx), cluster = clustLab)
+  dt[annot, on = .(gene), cluster := i.cluster]
+  
+  p = ComplexHeatmap::Heatmap(
+    mtx, 
+    show_row_names = F,
+    cluster_columns = F,
+    row_split = clustLab
+  )
+  return(list(dt = dt, clustLab = clustLab, mtx = mtx, p = p))
+}
+
+# select only the genes that are significant - read my code files, check path
+p4vsp3 = fread(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Traj_endothelial/P4vsP3.csv"))
+p3vsp2 = fread(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Traj_endothelial/P3vsP2.csv"))
+p2vsp1 = fread(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Traj_endothelial/P2vsP1.csv"))
+get_sig_genes = function(dt){
+  return(dt[p_val_adj < 0.05, rn])
+}
+path_sig_genes = Reduce(union, list(
+  p4vsp3 = get_sig_genes(p4vsp3),
+  p3vsp2 = get_sig_genes(p3vsp2),
+  p2vsp1 = get_sig_genes(p2vsp1)
+))
+
+
+p4vsp3[, comp := "p4vsp3"]
+p3vsp2[, comp := "p3vsp2"]
+p2vsp1[, comp := "p2vsp1"]
+
+# merge the results
+
+tt_dt1 <- merge(p4vsp3[p_val_adj < 0.05], p3vsp2[p_val_adj < 0.05], 
+               by = "rn", all = T)
+
+tt_dt <- merge(tt_dt1, p2vsp1[p_val_adj < 0.05],
+                by = "rn", all = T)
+
+## TT = temporal trajectory
+TT_cluster = gt_TT_clustering(
+  dt = ave.exp_dt_path[gene %in% path_sig_genes, ],
+  k = 6
+)
+
+TT_cluster$p
+TT_cluster_gene_clusters = TT_cluster$dt[, .(gene, cluster)] %>% unique()
+
+#fwrite(TT_cluster_gene_clusters, )
+#save(TT_cluster, file = file.path(rdir, "AD progression", "TT_cluster.RData"))
+#fwrite(TT_cluster_gene_clusters, file = file.path(rdir, "AD progression", "pathall_TT.trends_clusters_0802.csv"))
+# fwrite(TT_cluster_gene_clusters, file = file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Traj_endothelial/pathall_TT.trends_allinfo_endo.csv"))
+
+```
+
+
+
+
+```{r}
+load(file = file.path(rdir, "AD progression", "TT_cluster.RData"))
+
+TT_genetraj = copy(TT_cluster$dt)
+TT_genetraj = TT_genetraj[, .(gene, cluster, path_group, ave_zscore_path)] %>% unique()
+TT_genetraj[, mean_trend := mean(ave_zscore_path), by = .(cluster, path_group)]
+TT_genetraj[, ave_zscore_cluster := mean(ave_zscore_path), by = .(cluster, path_group)]
+TT_genetraj_N<-TT_genetraj[path_group==1, .N, by=.(cluster)]
+TT_genetraj_N<-TT_genetraj_N[order(cluster),]$N
+rename_dt_TT = data.table(
+  cluster = factor(c(1,2,3,4,5,6)),
+  new_cluster = c(1, 6, 4, 5, 3, 2),
+  new_name = paste0("gene set #", c(1, 6, 4, 5, 3, 2), " (n = ",TT_genetraj_N, ")")
+)
+
+TT_genetraj[rename_dt_TT, on = .(cluster), new_name := i.new_name]
+TT_genetraj[rename_dt_TT, on = .(cluster), new_cluster := i.new_cluster]
+
+p_line = ggplot(
+  TT_genetraj,
+  aes(x = path_group, y = ave_zscore_path)
+) + geom_line(color = "gray90", aes(group = gene)) +
+  facet_wrap(new_name ~ ., ncol = 1) +
+  geom_line(
+    dat = TT_genetraj[, .(path_group, cluster, ave_zscore_cluster, new_name)] %>% unique(),
+    aes(x = path_group, y = ave_zscore_cluster, color = new_name),
+    size = 1
+  ) +
+  my_border_theme() +
+  labs(x = "Increasing Pathology", y = "Standardized gene expression")+
+  theme(legend.position = "none", strip.text = element_text(size = 17)) +
+  scale_color_manual(values = c(
+    "#e9a3c9", "#91bfdb", 
+    "#FBA949", "#8BD448", 
+    "#FAE442", "#9C4F96"))
+
+p_line
+ggsave(file.path(rdir, "AD progression", "fig4a.png"), width = 3.5, height = 15)
+```
+
+Fig 4b
+```{r}
+barplot<- function(pathways, 
+                   color, 
+                   wide, 
+                   space, 
+                   dodge, 
+                   times, 
+                   hjust) {
+  
+  pathways[, genes1:= gsub("\\|", " | ", genes)]
+  pathways[, labels := stringr::str_wrap(pathways$genes1,25)]
+  #pathways_ordered <- pathways[order(`-log10FDR`), ]
+  
+  pathways<-pathways[order(`-log10FDR`), ]
+  # pathways[, gene_set_name2 := 
+  #            factor(gene_set_name, levels = pathways_ordered$gene_set_name)]
+  # pathways[, name2 := factor(name, levels = pathways_ordered$name)]
+  # pathways[, genes2 := factor(genes1, levels = pathways_ordered$genes1)]
+  # pathways[, labels2 := factor(labels, levels = pathways_ordered$labels)]
+  out <- 
+    ggplot(data=pathways, aes(x=`-log10FDR`, y=fct_reorder(labels, `-log10FDR`))) +
+    geom_bar(
+      width = wide, 
+      fill = color, 
+      alpha = 0.45, 
+      position = position_dodge(width = 0.1),
+      stat = "identity"
+    ) +
+    xlab("log10FDR") +
+    theme_classic()+
+    theme(plot.title = element_text(hjust = 1)) +
+    theme(axis.title = element_text(size = 20, color = "black")) +
+    labs(x = expression("-log"[10]*" (FDR)"), y = "") +
+    scale_x_reverse(position = "top", guide = guide_axis(check.overlap = TRUE)) +
+    scale_y_discrete(position = "right") +
+    theme(
+      axis.text.y=element_text(size =16),
+      axis.ticks.y=element_blank(), 
+      axis.text.x = element_text(
+        size = 8)
+      ) +
+    theme(aspect.ratio = space)+
+    geom_text(aes(
+      label = `name`, 
+      x = rep(c(dodge),
+          times = times),
+      hjust = hjust
+      ), 
+      size = 8)
+   out = out + facet_wrap(new_name ~ .) +
+     theme(strip.text.x = element_blank())
+  return(out)
+}
+
+allcluster <- fread("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Results/AD progression/Temporal_Trajectories_Pathways_Analysis/mapped/allcluster_2_UTF8.csv")
+allcluster[, new_name := paste0("gene set #", geneset)]
+colnames(allcluster)[9] <- "-log10FDR"
+
+#pathways, color, wide, space, dodge, times, hjust
+bar_1 = barplot(allcluster[geneset == 1], "#e9a3c9", 0.8, 0.5, 0.3, 5, 1)
+ggsave(file.path(rdir,  "TP_barplots", "GS1.png"), width = 16, height = 8)
+bar_2 = barplot(allcluster[geneset == 2], "#91bfdb", 0.8, 0.5, 0.1, 4, 1)
+ggsave(file.path(rdir,  "TP_barplots", "GS2.png"), width = 16, height = 8)
+bar_3 = barplot(allcluster[geneset == 3], "#FBA949", 0.8, 1, 0.05, 6, 1)
+ggsave(file.path(rdir,  "TP_barplots", "GS3.png"), width = 16, height = 8)
+bar_4 = barplot(allcluster[geneset == 4], "#8BD448", 0.8, 0.5, 0.05, 4, 1)
+ggsave(file.path(rdir,  "TP_barplots", "GS4.png"), width = 16, height = 8)
+bar_5 = barplot(allcluster[geneset == 5], "#FAE442", 0.8, 0.5, 0.05, 4, 1)
+ggsave(file.path(rdir,  "TP_barplots", "GS5.png"), width = 16, height = 8)
+bar_6 = barplot(allcluster[geneset == 6], "#9C4F96", 0.8, 0.5, 0.07, 5, 1)
+ggsave(file.path(rdir,  "TP_barplots", "GS6.png"), width = 16, height = 8)
+
+bars = ggarrange(bar_1, bar_2, bar_3, bar_4, bar_5, bar_6, 
+          ncol = 1, align = "hv")
+ggsave(bars, filename = file.path(rdir,  "TP_barplots", "all_bars_TP.png"), width = 20, height = 31.89)
+
+```
+

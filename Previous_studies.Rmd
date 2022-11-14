@@ -1,0 +1,1171 @@
+---
+title: "Previous_studies"
+author: "Rojashree Jayakumar"
+date: "2022-10-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Functions
+```{r}
+#' calculate total number of cells 
+#' 
+#' @param celltypes vector; cell type labels for each cell
+#' @param dataset string; name of dataset
+#' @param region string; name of brain region
+#' 
+#' @return a data.table contains number of cells, dataset, region
+
+n_cells = function(celltypes, dataset, region){
+  dt = table(celltypes = celltypes) %>% as.data.frame() %>% setDT()
+  dt[, dataset := dataset]
+  dt[, region := region]
+  return(dt)
+}
+
+
+#' reformat celltype names
+#' 
+#' @param celltypes vector; cell type labels for each cell
+#' @param celltype_map list; a list with name = old cell type name
+#' value = new cell type name
+#'
+#' @return a vector of new cell type name
+
+refromat_celltypes = function(celltypes, celltype_map){
+  x = pbsapply(celltypes, function(celltype){
+    ifelse(celltype %in% names(celltype_map),
+    celltype_map[[celltype]],
+    celltype
+    )
+  })
+  return(x)
+}
+
+
+#' calculate total number of reads per cell
+#' 
+#' @param counts dgTMatrix or dgCMatrix; raw counts 
+#' @param clabels vector; cell type labels for each cell
+#' @param dataset string; name of dataset
+#' @param region string; name of brain region
+#' 
+#' @return a data.table contains average total reads per cell, dataset, region
+
+total_reads = function(counts, clabels, dataset, region, celltype_map = NULL){
+  # total number of reads
+  dt = data.table(
+    total_reads = colSums(counts),
+    celltype_raw = clabels,
+    dataset = dataset,
+    region = region
+  )
+  
+  dt = dt[, .(ave.totalreads = mean(total_reads)), by = .(celltype_raw, dataset, region)]
+  
+  if(is.null(celltype_map)){
+    dt[, celltypes := celltype_raw]
+  }else{
+    dt[, celltypes := refromat_celltypes(dt$celltype_raw, celltype_map)]
+  }
+  
+  return(dt)
+}
+
+
+#' calculate average number of expressed genes given cell type
+#' 
+#' @param counts dgTMatrix or dgCMatrix; raw counts 
+#' @param clabels vector; cell type labels for each cell
+#' @param dataset string; name of dataset
+#' @param region string; name of brain region
+#' 
+#' @return a data.table contains average  number of expressed genes, dataset, region
+
+avg_exp_genes = function(counts, clabels, dataset, region, celltype_map = NULL){
+  # number of exp genes per cells
+  dt = data.table(
+    n_exp_genes = colSums(counts > 0),
+    celltype_raw = clabels,
+    dataset = dataset,
+    region = region
+  )
+  
+  dt = dt[, .(avg_exp_genes = mean(n_exp_genes)), by = .(celltype_raw, dataset, region)]
+  
+  if(is.null(celltype_map)){
+    dt[, celltypes := celltype_raw]
+  }else{
+    dt[, celltypes := refromat_celltypes(dt$celltype_raw, celltype_map)]
+  }
+  
+  return(dt)
+}
+```
+
+
+Do not run these chunks locally.
+
+Grubman, Mathys Leng and Lau datasets need preprocessing 
+
+Grubman preprocessing
+```{r}
+# # This code is used to load Grubman et al data into R, create seurat object and 
+# filtering genes and cells as described in Grubman et al's paper
+
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# note
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+# distribution
+# all cells: 10850 features across 13214
+# astrocytes: 10850 features across 2171 samples
+
+# author:
+# all cells: Overall, the resulting filtered matrix consisted of 10,850 genes and 13,214 cells.
+# astrocytes: 2,171 astrocytes
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# parameters
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+# load required packages
+require(pbapply)
+require(data.table)
+require(tidyverse)
+require(Seurat)
+require(Matrix)
+
+# directories
+data_dir = file.path("..", "data", "published_AD", "Grubman")
+
+# result file name
+grubman_f = file.path(data_dir, "Grubman-raw.Rdata")
+grubman_ast_f = file.path(data_dir, "Grubman-ast.Rdata")
+
+# load data
+cell_meta = fread(file.path(data_dir, "Grubman_covariates.csv"), header = T)
+meta = fread(file.path(data_dir, "scRNA_metadata.tsv"), sep = "\t")
+counts = fread(file.path(data_dir, "Grubman_counts.csv"))
+
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# all cell types
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+# counts to sparseMatrix
+counts = counts %>% as.data.frame() %>% 
+  column_to_rownames("V1") %>% as.matrix() %>% as("sparseMatrix") 
+
+
+# create seurat object
+grubman = CreateSeuratObject(counts = counts, project = "grubman", min.cells = 0, min.features = 0)
+
+
+# UMAP cell embeddings
+umap_cell_embeddings = meta[, c("sampleID", "UMAP1_ALL", "UMAP2_ALL")] %>%
+  column_to_rownames("sampleID") %>% as.matrix()
+colnames(umap_cell_embeddings) = c("UMAP_1", "UMAP_2")
+## double-check the order of tags: ok
+all(colnames(grubman) == rownames(umap_cell_embeddings))
+## should be integrated, however, we don't have integrated data
+grubman[["umap"]] = CreateDimReducObject(embeddings = umap_cell_embeddings, key = "UMAP_",
+                                         assay = "RNA")
+
+
+# cell meta
+all(meta$sampleID == cell_meta$V1)
+all(meta$sampleID == colnames(grubman))
+all_meta = cbind(grubman@meta.data,
+                 meta %>% column_to_rownames("sampleID"),
+                 cell_meta %>% column_to_rownames("V1"))
+grubman@meta.data = all_meta
+
+
+# dimplot
+p = DimPlot(grubman, group.by = "cellType")
+ggsave(p, file = file.path(data_dir, "grubman_dimplot_all_celltypes.pdf"))
+
+# save
+save(grubman, file = grubman_f)
+
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# astrocytes
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+# seurat object
+grubman_ast = grubman[, grubman$cellType == "astro"]
+
+
+# UMAP cell embeddings
+ast_umap_cell_embeddings = meta[, c("sampleID", "UMAP1_ct", "UMAP2_ct")] %>%
+  column_to_rownames("sampleID") %>% as.matrix()
+colnames(ast_umap_cell_embeddings) = c("UMAP_1", "UMAP_2")
+ast_umap_cell_embeddings = ast_umap_cell_embeddings[colnames(grubman_ast), ]
+## double-check the order of tags: ok
+all(colnames(grubman_ast) == rownames(ast_umap_cell_embeddings))
+## should be integrated, however, we don't have integrated data
+grubman_ast[["umap"]] = CreateDimReducObject(embeddings = ast_umap_cell_embeddings, key = "UMAP_",
+                                         assay = "RNA")
+
+# dimplot
+p = DimPlot(grubman_ast, group.by = "oupSample.subclustID")
+ggsave(p, file = file.path(data_dir, "grubman_dimplot_ast_celltypes.pdf"))
+
+# save
+save(grubman_ast, file = grubman_ast_f)
+```
+
+Leng preprocessing
+
+```{r}
+# This code is used to load Leng et al data into R, create seurat object and 
+# filtering genes and cells as described in Leng et al's paper
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# note
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# parameters
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+# load required packages
+require(pbapply)
+require(data.table)
+require(tidyverse)
+require(Seurat)
+require(Matrix)
+require(scater)
+
+# directories
+data_dir = file.path("..", "data", "published_AD", "Leng")
+
+# result file name
+leng_f = file.path(data_dir, "Leng-raw.Rdata")
+
+# list all .h5 files
+h5_fs = list.files(data_dir)
+h5_fs = grep("*\\.h5$", h5_fs, value = T)
+
+# load data
+leng = Read10X_h5(file.path(data_dir, "GSM4432635_SFG2_raw_gene_bc_matrices_h5.h5"), 
+                  use.names = TRUE, 
+                  unique.features = TRUE)
+
+
+```
+
+Lau preprocessing
+
+```{r}
+# This code is used to load Lau et al data into R, create seurat object and 
+# filtering genes and cells as described in Lau et al's paper
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# notes
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# Q&A from author
+
+# Q1:
+#   - 1st round of QC is done by Cellranger and we used the filtered output for 2nd round of QC in Seurat.
+# - For 2nd roudn QC, we used nFeature_RNA > 200 & nCount_RNA < 20000 & percent.mt < 20 (instead of nFeature_RNA < 20000). Maybe you can try redoing the QC? Our experience is that the # of nuclei obtained varies dependent on your integration parameters as well. I won't expect the # to be exactly the same but similar.
+# 
+# Q2:
+#   - We didn't aggregate them into a single mtx using cellragner.
+# - We created Seurat object for individual --> QC --> integrate using default CCA.
+# 
+# run a canonical correlation analysis to identify common sources of variation between the two datasets. 
+# RunCCA will also combine the two objects into a single object and stores the canonical correlation vectors (the vectors that project each dataset into the maximally correlated subspaces)
+
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# parameters
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+# load required packages
+require(pbapply)
+require(data.table)
+require(tidyverse)
+require(Seurat)
+require(Matrix)
+
+# directories
+data_dir = file.path("..", "data", "Lau")
+
+# result file name
+lau_f = file.path(data_dir, "Lau-raw.Rdata")
+
+# filtering parameters
+# from paper methods section:
+# To exclude potential dead cells and cell debris from the dataset, 
+# we filtered out nuclei with ≤200 genes, ≥20,000 unique molecular identifiers, 
+# or ≥20% mitochondrial genes as described in several previous snRNA-seq studies 
+# (12, 13, 22, 53). 
+# The final filtered matrix contained 169,496 nuclei and 29,171 genes. 
+n_UMI = 20000
+n_genes = 200
+mt_pct = 20
+#  We first log-normalized the filtered matrixes and identified highly variable 
+# features for each sample using the FindVariableFeatures function with the 
+# parameters selection.method = vst, and nfeatures = 1000. 
+n_HVG = 1000
+selection.method = "vst"
+# To integrate all 21 samples, we identified features for anchoring the samples 
+# using the FindIntegrationAnchors function with the parameter dims = 1:20 and 
+# used the identified anchors to integrate the dataset using the IntegrateData 
+# function with the parameter dims = 1:20. 
+n_dim = 20
+# We subsequently scaled the integrated matrix and performed linear dimensional 
+# reduction using the RunPCA function with the parameter npcs = 50. 
+npcs = 50
+# We visualized the P value distribu- tion of each principal component using the 
+# JackStrawPlot function and opted to use the first 20 principal components 
+# for graph-based clustering.
+npcs_cluster = 20
+# We performed K-nearest neighbor clustering using the FindClusters function 
+# with the parameter resolution = 1
+res = 1
+
+# note:
+# data description: Filtered mtx files from cellranger outputs
+# clusters: author: which initially yielded 43 cell clusters
+#           us: 46 final results
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# data overview: 
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# summary donor information and their corresponding file path
+
+
+# files downloaded from GEO
+fs = list.files(data_dir, full.names = T)
+mtx_fs = grep("matrix\\.mtx", fs, value = T)  # matrix.mtx
+g_fs = grep("features\\.tsv", fs, value = T)  # features
+b_fs = grep("barcodes\\.tsv", fs, value = T)  # barcode
+
+# file path summary
+meta = data.table(mtx = mtx_fs, features = g_fs, barcodes = b_fs)
+
+# get information from file name
+meta_from_fname = function(fanme){
+  return(stringr::str_match(fanme, "(GSM\\d*)_(.*)_matrix.mtx"))
+}
+meta[, GEO_acc := meta_from_fname(mtx)[,2]]
+meta[, Donor.ID := meta_from_fname(mtx)[,3]]
+meta[, AD := gsub("\\d*$", "", Donor.ID)]
+
+
+# gene annotation
+lau_gene_annot = pblapply(meta$features, function(g_f){
+  dt = fread(g_f, sep = "\t", header = F)
+  setnames(dt, c("V1", "V2"), c("ensembl_id", "gene_name"))
+  return(dt[, .(ensembl_id, gene_name)])
+})
+lau_gene_annot = Reduce(rbind, lau_gene_annot) %>% unique()
+# double-check number of genes: ok
+# nrow(lau_gene_annot)
+
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# load data
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# merge .mtx files and generate seurat object
+# note:
+# 1. there are duplicated barcode and gene symbols
+
+
+#' function to load 10X data based on file path
+#' 
+#' @param mtx_f string; path to *.matrix.mtx
+#' @param g_f string; path to *.features.tsv
+#' @param b_f string; path to *.barcodes.tsv
+#' @param project_name string; project name
+#' @param Donor.ID string; donor id
+#' 
+#' @return seurat object
+
+load_10X = function(mtx_f, g_f, b_f, project_name, Donor.ID){
+  mat = readMM(file = mtx_f)
+  features = fread(g_f, header = F, sep = "\t")
+  barcodes = fread(b_f, header = F, sep = "\t")
+  # Some cell names are duplicated across objects provided. Renaming to enforce unique cell names.
+  # paste Donor.ID to barcodes
+  colnames(mat) = paste(Donor.ID, barcodes$V1, sep = "-")
+  # warning: Non-unique features (rownames) present in the input matrix, making unique
+  # use ensembl_id as feature name
+  rownames(mat) = features$V1
+  
+  # default:
+  # min.cells = 0,
+  # min.features = 0
+  sObj = CreateSeuratObject(counts = mat, project = project_name)
+  sObj$Donor.ID = Donor.ID
+  return(sObj)
+}
+
+meta[, raw_num_of_barcode := 0]
+meta[, raw_num_of_gene := 0]
+
+# MT gene ensembl ids
+mt_genes_id = lau_gene_annot[grepl("^MT-", gene_name), ensembl_id]
+
+# load data and create a list of seurat objects
+# each element in list: seurat object of a individual donor
+obj_l = pblapply(seq_len(nrow(meta)), function(i){
+  # donor id
+  donor_id = meta[rownames(meta) == i, Donor.ID]
+  
+  # load data
+  obj = load_10X(mtx_f = meta[i, mtx], g_f = meta[i, features], 
+                 b_f = meta[i, barcodes], project_name = "Lau",
+                 Donor.ID = donor_id)
+  
+  # number of barcode 
+  meta[rownames(meta) == i, raw_num_of_barcode := ncol(obj)]
+  # number of genes
+  meta[rownames(meta) == i, raw_num_of_gene := nrow(obj)]
+  
+  # MT gene percentage
+  obj$pct.mt = PercentageFeatureSet(obj, features = mt_genes_id)
+  
+  # filtering
+  obj = subset(obj,
+               # number of expressed features
+               subset = nFeature_RNA > n_genes & 
+                 nCount_RNA < n_UMI & 
+                 pct.mt < mt_pct)
+  
+  # number of barcode 
+  meta[rownames(meta) == i, final_num_of_barcode := ncol(obj)]
+  # number of genes
+  meta[rownames(meta) == i, final_num_of_gene := nrow(obj)]
+  
+  return(obj)
+})
+fwrite(meta, file.path(data_dir, "meta.csv"))
+
+
+# test number of genes & cells after filtering
+# lau = Reduce(merge, obj_l)
+# 33538 features across 169506 samples
+# author: 169,496 nuclei and 29,171 genes
+
+
+# normalize
+obj_l = pblapply(obj_l, function(obj){
+  obj = NormalizeData(obj)
+  obj = FindVariableFeatures(obj, selection.method = selection.method, 
+                             nfeatures = n_HVG)
+  return(obj)
+})
+
+
+# select features that are repeatedly variable across datasets for integration
+features = SelectIntegrationFeatures(object.list = obj_l, nfeatures = n_HVG)
+
+
+# CCA integration
+anchors = FindIntegrationAnchors(obj_l, dims = 1:n_dim, anchor.features = features)
+lau = IntegrateData(anchorset = anchors)
+
+
+# PCA
+DefaultAssay(lau) = "integrated"
+lau = ScaleData(lau)
+lau = RunPCA(lau, npcs = npcs)
+
+
+# UMAP
+lau = RunUMAP(lau, reduction = "pca", dims = 1:npcs_cluster)
+
+
+# Clustering
+# Run the standard workflow for visualization and clustering
+lau = FindNeighbors(lau, reduction = "pca", dims = 1:npcs_cluster)
+lau = FindClusters(lau, resolution = res)
+
+# save
+save(lau, lau_gene_annot, file = lau_f)
+
+cat("Done\n")
+
+```
+
+
+Mathys preprocessing
+
+```{r}
+# # This code is used to load Mathys et al data into R, create seurat object and 
+# filtering genes and cells as described in Mathys et al's paper
+# author: Zhaozhi Li
+# version: 10-10-2021
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# note
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# parameters
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+# load required packages
+require(pbapply)
+require(data.table)
+require(tidyverse)
+require(Seurat)
+require(Matrix)
+
+# directories
+data_dir = file.path("..", "data", "published_AD", "ROSMAP")
+
+# result file name
+mathys_f = file.path(data_dir, "Mathys-raw.Rdata")
+
+# load data
+cell_meta = fread(file.path(data_dir, "Mathys_tag_annot.csv"), header = T)
+barcodes = fread(file.path(data_dir, "filtered_column_metadata.txt"))
+genes = readLines(file.path(data_dir, "filtered_gene_row_names.txt"))
+counts = readMM(file.path(data_dir, "filtered_count_matrix.mtx"))
+colnames(counts) = barcodes$TAG
+rownames(counts) = genes
+
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# all cell types
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+# create seurat object
+mathys = CreateSeuratObject(counts = counts, project = "mathys", min.cells = 0, min.features = 0)
+
+
+# tSNE cell embeddings
+tsne_cell_embeddings = cell_meta[, c("TAG", "tsne1", "tsne2")] %>%
+  column_to_rownames("TAG") %>% as.matrix()
+colnames(tsne_cell_embeddings) = c("tSNE_1", "tSNE_2")
+## double-check the order of tags: ok
+all(colnames(mathys) == rownames(tsne_cell_embeddings))
+## should be integrated, however, we don't have integrated data
+mathys[["tsne"]] = CreateDimReducObject(embeddings = tsne_cell_embeddings, key = "tSNE_",
+                                         assay = "RNA")
+
+
+# cell meta
+all(cell_meta$TAG == barcodes$TAG)
+all(cell_meta$TAG == colnames(mathys))
+all_meta = cbind(mathys@meta.data,
+                 cell_meta %>% column_to_rownames("TAG"))
+mathys@meta.data = all_meta
+
+
+# save
+save(mathys, file = mathys_f)
+
+
+# dimplot
+p = DimPlot(mathys, group.by = "broad.cell.type")
+ggsave(p, file = file.path(data_dir, "mathys_dimplot_all.pdf"))
+
+
+```
+
+
+These chuncks are used to generate dataframes of average total reads, average expressed genes and total cells for all the different datasets
+
+Each chunk is run to retreive for the corresponding dataset and finally they are merged to form 3 dataframes (average total reads, average expressed genes and total cells)
+
+
+
+# Leng
+
+```{r}
+# reformat cell type names
+martin$EC$clusterCellType %>% unique()
+celltype_map = list(
+  "Astro" = "astrocyte",
+  "Micro" = "microglia",
+  "Endo" = "endothelial"
+)
+martin$EC$celltype = refromat_celltypes(martin$EC$clusterCellType, celltype_map)
+martin$SFG$celltype = refromat_celltypes(martin$SFG$clusterCellType, celltype_map)
+## double-check cell type: ok
+table(new = martin$EC$celltype, old = martin$EC$clusterCellType)
+table(new = martin$SFG$celltype, old = martin$SFG$clusterCellType)
+
+
+# total number of cells
+martin_ncells = rbind(
+  n_cells(martin$EC$celltype, "Leng et al.", "EC"),
+  n_cells(martin$SFG$celltype, "Leng et al.", "SFG")
+)
+
+
+# average total number of reads
+martin_reads = rbind(
+  total_reads(
+    counts = martin$EC@assays@data@listData$counts,
+    clabels = martin$EC$celltype,
+    dataset = "Leng et al.", 
+    region = "EC",
+    celltype_map = celltype_map
+  ),
+  total_reads(
+    counts = martin$SFG@assays@data@listData$counts,
+    clabels = martin$SFG$celltype,
+    dataset = "Leng et al.", 
+    region = "SFG",
+    celltype_map = celltype_map
+    )
+)
+
+# average number of expressed genes
+martin_avg_exp_genes = rbind(
+  avg_exp_genes(
+    counts = martin$EC@assays@data@listData$counts,
+    clabels = martin$EC$celltype,
+    dataset = "Leng et al.", 
+    region = "EC",
+    celltype_map = celltype_map
+  ),
+  avg_exp_genes(
+    counts = martin$SFG@assays@data@listData$counts,
+    clabels = martin$SFG$celltype,
+    dataset = "Leng et al.", 
+    region = "SFG",
+    celltype_map = celltype_map
+  )
+)
+```
+
+
+# Mathys
+
+```{r}
+# reformat celltype names
+rosmap$broad.cell.type %>% unique()
+celltype_map = list(
+  "Ast" = "astrocyte",
+  "Mic" = "microglia",
+  "End" = "endothelial"
+)
+rosmap$celltype = refromat_celltypes(rosmap$broad.cell.type, celltype_map)
+## double-check cell type: ok
+table(old = rosmap$broad.cell.type, new = rosmap$celltype)
+
+
+# total number of cells
+rosmap_ncells = n_cells(rosmap$celltype, "Mathys et al.", "BA10")
+
+
+# average total number of reads
+rosmap_reads = total_reads(
+  counts = rosmap@assays$RNA@counts,
+  clabels = rosmap$celltype,
+  dataset = "Mathys et al.", 
+  region = "BA10",
+  celltype_map = celltype_map
+)
+
+# average number of expressed genes
+rosmap_avg_exp_genes = avg_exp_genes(
+  counts = rosmap@assays$RNA@counts,
+  clabels = rosmap$celltype,
+  dataset = "Mathys et al.", 
+  region = "BA10",
+  celltype_map = celltype_map
+)
+```
+
+
+# Grubman
+
+```{r}
+# reformat celltype names
+grubman$celltype %>% unique()
+celltype_map = list(
+  "astro" = "astrocyte",
+  "mg" = "microglia",
+  "endo" = "endothelial"
+)
+grubman$celltypes = refromat_celltypes(grubman$celltype, celltype_map)
+## double-check cell type: ok
+table(old = grubman$celltype, new = grubman$celltypes)
+
+
+# total number of cells
+# entorhinal cortex
+grubman_ncells = n_cells(grubman$celltypes, "Grubman et al.", "EC")
+
+
+# average total number of reads
+grubman_reads = total_reads(
+  counts = grubman@assays$RNA@counts,
+  clabels = grubman$celltypes,
+  dataset = "Grubman et al.", 
+  region = "EC",
+  celltype_map = celltype_map
+)
+
+# average number of expressed genes
+grubman_avg_exp_genes = avg_exp_genes(
+  counts = grubman@assays$RNA@counts,
+  clabels = grubman$celltypes,
+  dataset = "Grubman et al.", 
+  region = "EC",
+  celltype_map = celltype_map
+)
+```
+
+
+# Lau
+
+```{r}
+# reformat celltype names
+lau$celltype %>% unique()
+celltype_map = list(
+  "astrocytes" = "astrocyte",
+  "endothelial cells" = "endothelial"
+)
+lau$celltypes = refromat_celltypes(lau$celltype, celltype_map)
+## double-check cell type: ok
+table(old = lau$celltype, new = lau$celltypes)
+
+
+# total number of cells
+# prefrontal cortical
+lau_ncells = n_cells(lau$celltypes, "Lau et al.", "prefrontal cortical")
+
+
+# average total number of reads
+lau_reads = total_reads(
+  counts = lau@assays$RNA@counts,
+  clabels = lau$celltypes,
+  dataset = "Lau et al.", 
+  region = "prefrontal cortical",
+  celltype_map = NULL
+)
+
+# average number of expressed genes
+lau_avg_exp_genes = avg_exp_genes(
+  counts = lau@assays$RNA@counts,
+  clabels = lau$celltypes,
+  dataset = "Lau et al.", 
+  region = "prefrontal cortical",
+  celltype_map = NULL
+)
+```
+
+
+#Smith
+
+```{r}
+Smith <- readRDS("/autofs/space/mindds_001/projects/AbbvieSnRNASeq/data/published_AD/Smith/Smith_et_al_2022_sce.rds")
+smith<- as.Seurat(Smith, data = NULL)
+
+#spliting based on region
+smith<- SplitObject(smith, split.by = "Region")
+
+celltype_map = list(
+  "Astro" = "astrocyte",
+  "Micro" = "microglia",
+  "Vasc2" = "endothelial"
+)
+
+#smith$idents was a factor
+smith$EC$celltypes = refromat_celltypes(as.character(smith$EC$ident), celltype_map)
+smith$SSC$celltypes = refromat_celltypes(as.character(smith$SSC$ident), celltype_map)
+
+table(old = smith$EC$ident, new = smith$EC$celltypes)
+table(old = smith$SSC$ident, new = smith$SSC$celltypes)
+
+
+smith_EC_ncells = n_cells(smith$EC$celltypes, "Smith et al.", "EC")
+smith_SSC_ncells = n_cells(smith$SSC$celltypes, "Smith et al.", "SSC")
+
+#EC - Average
+# average total number of reads
+smith_EC_reads = total_reads(
+  counts = smith[["EC"]]@assays[["originalexp"]]@counts,
+  clabels = smith$EC$celltypes,
+  dataset = "Smith et al. EC", 
+  region = "EC",
+  celltype_map = celltype_map
+)
+
+
+#average expressed genes
+smith_EC_avg_exp_genes = avg_exp_genes(
+  counts = smith[["EC"]]@assays[["originalexp"]]@counts,
+  clabels = smith$EC$celltypes,
+  dataset = "Smith et al. EC", 
+  region = "EC",
+  celltype_map = celltype_map
+)
+
+#SSC - Average
+# average total number of reads
+smith_SSC_reads = total_reads(
+  counts = smith[["SSC"]]@assays[["originalexp"]]@counts,
+  clabels = smith$SSC$celltypes,
+  dataset = "Smith et al. SSC", 
+  region = "SSC",
+  celltype_map = celltype_map
+)
+
+
+#average expressed genes
+smith_SSC_avg_exp_genes = avg_exp_genes(
+  counts = smith[["SSC"]]@assays[["originalexp"]]@counts,
+  clabels = smith$SSC$celltypes,
+  dataset = "Smith et al. SSC", 
+  region = "SSC",
+  celltype_map = celltype_map
+)
+
+```
+
+# This studay 
+rPCA integrated dataset for each region is loaded 
+## BA20
+```{r}
+# load BA20 data
+ba20_f = file.path(data_dir, "Rdata", "BA20-rPCA-clear-preprocessed.RData")
+load(ba20_f)
+
+# reformat cell type labels
+celltype_map = list(
+  "astrocytes" = "astrocyte",
+  "endothelial" = "endothelial"
+)
+rPCA$celltypes = refromat_celltypes(rPCA$celltype %>% as.character(), celltype_map)
+## double-check cell type: ok
+table(new = rPCA$celltypes, old = rPCA$celltype)
+
+# total number of cells
+ba20_ncells = n_cells(rPCA$celltypes, "Hyman lab-Abbvie", "BA20")
+
+
+# average total number of reads
+ba20_reads = total_reads(
+  counts = rPCA@assays$RNA@counts,
+  clabels = rPCA$celltypes,
+  dataset = "Hyman lab-Abbvie", 
+  region = "BA20",
+  celltype_map = celltype_map
+)
+
+
+# average number of expressed genes
+ba20_avg_exp_genes = avg_exp_genes(
+  counts = rPCA@assays$RNA@counts,
+  clabels = rPCA$celltypes,
+  dataset = "Hyman lab-Abbvie", 
+  region = "BA20",
+  celltype_map = celltype_map
+)
+
+rm(rPCA)
+```
+
+
+## EC
+```{r}
+# load EC data
+ec_f = file.path(data_dir, "Rdata", "EC_rPCA-clear-preprocessed.RData")
+load(ec_f)
+
+
+# total number of cells
+ec_ncells = n_cells(EC_rPCA$ctype, "Hyman lab-Abbvie", "EC")
+
+
+# average total number of reads
+ec_reads = total_reads(
+  counts = EC_rPCA@assays$RNA@counts,
+  clabels = EC_rPCA$ctype,
+  dataset = "Hyman lab-Abbvie", 
+  region = "EC",
+  celltype_map = NULL
+)
+
+# average number of expressed genes
+ec_avg_exp_genes = avg_exp_genes(
+  counts = EC_rPCA@assays$RNA@counts,
+  clabels = EC_rPCA$ctype,
+  dataset = "Hyman lab-Abbvie", 
+  region = "EC",
+  celltype_map = NULL
+)
+
+rm(EC_rPCA)
+```
+
+
+## BA46
+```{r}
+# load BA46 data
+ba46_f = file.path(data_dir, "Rdata", "annie", "BA46_rPCA.Rdata")
+load(ba46_f)
+
+# total number of cells
+ba46_ncells = n_cells(BA46_rPCA$Annie_Cell_Type, "Hyman lab-Abbvie", "BA46")
+
+
+# average total number of reads
+ba46_reads = total_reads(
+  counts = BA46_rPCA@assays$RNA@counts,
+  clabels = BA46_rPCA$Annie_Cell_Type,
+  dataset = "Hyman lab-Abbvie", 
+  region = "BA46",
+  celltype_map = NULL
+)
+
+
+# average number of expressed genes
+ba46_avg_exp_genes = avg_exp_genes(
+  counts = BA46_rPCA@assays$RNA@counts,
+  clabels = BA46_rPCA$Annie_Cell_Type,
+  dataset = "Hyman lab-Abbvie", 
+  region = "BA46",
+  celltype_map = NULL
+)
+
+rm(BA46_rPCA)
+```
+
+## V1
+```{r}
+# load V1 data
+v1_f = file.path(data_dir, "Rdata", "annie", "V1_rPCA.Rdata")
+load(v1_f)
+
+# total number of cells
+v1_ncells = n_cells(V1_rPCA$Annie_Cell_Type, "Hyman lab-Abbvie", "V1")
+
+
+# average total number of reads
+v1_reads = total_reads(
+  counts = V1_rPCA@assays$RNA@counts,
+  clabels = V1_rPCA$Annie_Cell_Type,
+  dataset = "Hyman lab-Abbvie", 
+  region = "V1",
+  celltype_map = NULL
+)
+
+# average number of expressed genes
+v1_avg_exp_genes = avg_exp_genes(
+  counts = V1_rPCA@assays$RNA@counts,
+  clabels = V1_rPCA$Annie_Cell_Type,
+  dataset = "Hyman lab-Abbvie", 
+  region = "V1",
+  celltype_map = NULL
+)
+
+rm(V1_rPCA)
+```
+
+## V2
+```{r}
+# load V2 data
+v2_f = file.path(data_dir, "Rdata", "annie", "V2_rPCA.Rdata")
+load(v2_f)
+
+# total number of cells
+v2_ncells = n_cells(V2_rPCA$Annie_Cell_Type, "Hyman lab-Abbvie", "V2")
+
+
+# average total number of reads
+v2_reads = total_reads(
+  counts = V2_rPCA@assays$RNA@counts,
+  clabels = V2_rPCA$Annie_Cell_Type,
+  dataset = "Hyman lab-Abbvie", 
+  region = "V2",
+  celltype_map = NULL
+)
+
+
+# average number of expressed genes
+v2_avg_exp_genes = avg_exp_genes(
+  counts = V2_rPCA@assays$RNA@counts,
+  clabels = V2_rPCA$Annie_Cell_Type,
+  dataset = "Hyman lab-Abbvie", 
+  region = "V2",
+  celltype_map = NULL
+)
+
+rm(V2_rPCA)
+```
+
+
+
+# merge
+```{r}
+ba20_ncells[, region := "ITG"]
+ba46_ncells[, region := "PFC"]
+ba20_reads[, region := "ITG"]
+ba46_reads[, region := "PFC"]
+ba20_avg_exp_genes[, region := "ITG"]
+ba46_avg_exp_genes[, region := "PFC"]
+
+ncells = rbind(
+  rosmap_ncells,
+  grubman_ncells,
+  lau_ncells,
+  martin_ncells,
+  ec_ncells,
+  ba20_ncells,
+  ba46_ncells,
+  v1_ncells,
+  v2_ncells,
+  smith_EC_ncells,
+  smith_SSC_ncells
+)
+ncells[, group := ifelse(dataset == "Hyman lab-Abbvie", "Current Study", "Previous Studies")]
+ncells[, labels := ifelse(dataset == "Hyman lab-Abbvie", region, 
+                          ifelse(dataset == "Leng et al.", paste(dataset, region),
+                                         ifelse(dataset == "Smith et al.", paste(dataset, region),dataset)))]
+getwd()
+
+fwrite(ncells, file.path(result_dir, "figs1_ncells_published.AD.datasets.csv"))
+
+ave.totalreads = rbind(
+  rosmap_reads,
+  grubman_reads,
+  lau_reads,
+  martin_reads,
+  ec_reads,
+  ba20_reads,
+  ba46_reads,
+  v1_reads,
+  v2_reads,
+  smith_EC_reads,
+  smith_SSC_reads
+)
+ave.totalreads[, group := ifelse(dataset == "Hyman lab-Abbvie", "Current Study", "Previous Studies")]
+ave.totalreads[, labels := ifelse(dataset == "Hyman lab-Abbvie", region, 
+                          ifelse(dataset == "Leng et al.", paste(dataset, region),
+                                         ifelse(dataset == "Smith et al.", paste(dataset, region),dataset)))]
+fwrite(ave.totalreads, file.path(result_dir, "figs1_ave.totalreads_published.AD.datasets.csv"))
+
+ave.expgenes = rbind(
+  rosmap_avg_exp_genes,
+  grubman_avg_exp_genes,
+  lau_avg_exp_genes,
+  martin_avg_exp_genes,
+  ec_avg_exp_genes,
+  ba20_avg_exp_genes,
+  ba46_avg_exp_genes,
+  v1_avg_exp_genes,
+  v2_avg_exp_genes,
+  smith_EC_avg_exp_genes,
+  smith_SSC_avg_exp_genes
+)
+ave.expgenes[, group := ifelse(dataset == "Hyman lab-Abbvie", "Current Study", "Previous Studies")]
+ave.expgenes[, labels := ifelse(dataset == "Hyman lab-Abbvie", region, 
+                                  ifelse(dataset == "Leng et al.", paste(dataset, region),
+                                         dataset))]
+fwrite(ave.expgenes, file.path("figs1_ave.expgenes_published.AD.datasets.csv"))
+```
+
+
+Only this chunk can be run locally.
+
+this chunk is used to generate fig S1a, which compares the number of cells and genes with the present study
+```{r}
+my_theme = function(){
+    theme(
+      axis.line = element_blank(),
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      axis.title.x = element_text(size = 15), 
+      axis.title.y = element_text(size = 15), 
+      strip.background = element_rect(colour="white", fill="white"),
+      strip.text = element_text(size = 12),
+      panel.border = element_rect(colour = "black", fill = NA, size = 1.5),
+      plot.subtitle=element_text(size=15, hjust=0.5, vjust = -0.5)
+    )
+}
+
+ncells<- fread(file.path("..","Data/Supplementary_figures_data/Supp_Fig1_data/figs1_ncells_published.AD.datasets.csv"))
+ave.totalreads<- fread(file.path("..","Data/Supplementary_figures_data/Supp_Fig1_data/figs1_ave.totalreads_published.AD.datasets.csv"))
+ave.expgenes<- fread(file.path("..","Data/Supplementary_figures_data/Supp_Fig1_data/figs1_ave.expgenes_published.AD.datasets.csv"))
+
+sel_celltypes = c("astrocyte", "microglia", "endothelial")
+
+## number of cells
+
+p_ncells = ggplot(ncells[celltypes %in% sel_celltypes, ], aes(x = labels, y = Freq)) +
+  geom_bar(stat = "identity", aes(fill = celltypes)) +
+  facet_grid(celltypes ~ group, space = "free_x", scales = "free")  +
+  labs(x = "", y = "Number of cells") +
+  my_theme() +
+  theme(strip.text.y = element_text(angle = 90))+
+  scale_fill_manual(name = "cell types", 
+                     values = c("#9AD3BC", "#F3EAC2", "#F5B461")) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        legend.position = "none")
+
+## average total number of reads
+
+# AAIC: number of ast
+ncells[celltypes == "astrocyte", ] %>%
+  .[, .(nast = sum(Freq)), by = dataset]
+p_totalreads = ggplot(ave.totalreads[celltypes %in% sel_celltypes, ], aes(x = labels, y = ave.totalreads)) +
+  geom_bar(stat = "identity", aes(fill = celltypes)) +
+  facet_grid(celltypes ~ group, space = "free_x", scales = "free")  +
+  labs(x = "", y = "Average total number of reads") +
+  my_theme() +
+  theme(strip.text.y = element_text(angle = 90))+
+  scale_fill_manual(name = "cell types", 
+                     values = c("#9AD3BC", "#F3EAC2", "#F5B461")) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        legend.position = "none")
+#ggsave(p_totalreads, filename = file.path(p_dir, "ave.totalreads_published.AD.png"), width = 4)
+
+## average number of expressed genes
+
+p_avg.exp.genes = ggplot(ave.expgenes[celltypes %in% sel_celltypes, ], 
+       aes(x = labels, y = avg_exp_genes)) +
+  geom_bar(stat = "identity", aes(fill = celltypes)) +
+  facet_grid(celltypes ~ group, space = "free_x", scales = "free")  +
+  labs(x = "", y = "Average number of detected genes") +
+  my_theme() +
+  theme(strip.text.y = element_text(angle = 90)) +
+  scale_fill_manual(name = "cell types", 
+                     values = c("#9AD3BC", "#F3EAC2", "#F5B461")) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        legend.position = "none") 
+#ggsave(p_totalreads, filename = file.path(p_dir, "ave.expgenes_published.AD.png"), width = 4)
+
+# FC for AAIC:
+# ave.expgenes[celltypes == "astrocyte", ] %>%
+#   .[, .(avg_exp_genes = mean(avg_exp_genes)), by = .(group)]
+# 2670.593/1066.513
+# round(2670.593)
+
+figs1b = ggarrange(p_ncells, p_totalreads, p_avg.exp.genes, ncol = 3, nrow = 1, align = "hv")
+figs1b
+# ggsave(figs1b, filename = file.path(p_dir, "figs1b.png"),
+#        height = 5, width = 11)
+
+```
