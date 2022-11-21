@@ -42,7 +42,7 @@ source("Helper_scripts/figure_themes.R")
 rdata_path_in <- "../data/Rdata/in"
 rdata_path_out <-  "./data/Rdata/out/"
 scripts_path <- "../scripts/"
-annie_path <- "/autofs/space/mindds_001/projects/AbbvieSnRNASeq/scripts/annie/"
+results_path <- "../results/"
 
 
 brain_regions <- c("BA20", "BA46", "EC", "V1", "V2")
@@ -162,6 +162,55 @@ for (brain_region in c("BA46", "V1", "V2")) {
 ```{r Annotate cell clusters based on markers}
 # Find all markers for each brain region of the integrated data
 
+#' find all markers
+#' @param seurat.obj seurat object;
+#' @param res numeric; resolution
+#' @param ncore numeric; number of core to use
+#' @param known_marker_genes vector; list of known marker genes
+find_all_markers = function(seurat.obj, res, ncore=1, known_marker_genes){
+  DefaultAssay(seurat.obj) = "RNA"
+  Idents(seurat.obj) = paste0("integrated_snn_res.", res)
+  
+  cat("identify subcluster markers\n")
+  if(ncore!=1){
+    suppressMessages({
+      plan("multiprocess", workers = ncore)
+      options(future.globals.maxSize= 891289600)
+      options(future.seed = TRUE)
+      plan()
+    })
+  }
+  ### Warning message:
+  ### glm.fit: fitted probabilities numerically 0 or 1 occurred
+  ### https://www.biostars.org/p/404577/
+  markers = FindAllMarkers(seurat.obj, test.use = "LR",
+                           latent.vars = c("Donor.ID"))
+  plan("sequential")
+  
+  return(markers)
+}
+
+#calling the function
+for (brain_region in c("BA20", "BA46", "EC", "V1", "V2")) {
+  print(sprintf("Now starting %s", brain_region))
+
+  # Define input and output Rdata files
+  rdata_in_file <- paste0(rdata_path_in, sprintf("%s_preprocessed.Rdata", brain_region)) # raw data
+  rdata_out_file <- paste0(rdata_path_out, sprintf("%s_rPCA_new.Rdata", brain_region)) # integrated data
+
+  if (!file.exists(rdata_out_file)) {
+    print(sprintf("Now processing %s", brain_region))
+
+    # Load raw snRNAseq data
+    load(rdata_in_file)
+    ncore = 4
+    for (res in seq(0.1, 1, 0.1)){
+    # Run find_all_markers
+    markers = find_all_markers(rdata_in_file, res, ncore)
+    fwrite(markers, file.path = paste0(results_path, res, brain_region, "markers.csv"))
+    }
+  }
+}
 ```
 
 
