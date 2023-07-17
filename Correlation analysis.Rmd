@@ -705,7 +705,9 @@ proportion of CERAD cross brain region
 
 #Fig 5b
 ```{r}
-load(file.path("Data/fig5_data/merged_4c.RData"))
+load("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Fig5_data/merged_4c.rdata")
+
+merged_4c <- merged_new
 
 astHR = merged_4c[, merged_4c$cluster_group %in% c("astH1", "astH2", "astR1", "astR2")]
 
@@ -723,6 +725,7 @@ avge = avge %>%
 
 
 zcut = 0
+
 pct = 0.5
 
 astH1 = fread(file.path("Data/fig5_data/astH1_de_12112021.csv"))
@@ -864,6 +867,10 @@ do_dotplot = function(obj, features_dt, sel_group = NULL, h = 20, w = 7){
   return(list(p = pd, data = avge))
 }
 
+# changing the data.table to remove MT genes:
+
+fig5b_dt = fread("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Scripts-git/ad-progression-study/genes_fig5c.csv")
+
 fig5b_H = do_dotplot(
   merged_4c, features_dt = fig5b_dt,
   sel_group = c("astH1", "astH2", "astH1/H2 common")
@@ -899,6 +906,7 @@ ggsave(
   limitsize = FALSE
 )
 
+#fwrite(fig5b_dt, "data.csv")
 #fig3c_dt = fread(file.path(data_dir, "Alberto_ast_group_markers.csv"))
 
 p_astH1 = do_dotplot(merged_4c, features_dt = fig5b_dt, sel_group = "astH1")

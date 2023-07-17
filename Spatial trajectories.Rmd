@@ -62,10 +62,53 @@ writeLines(union_sig_genes, "union_sig_genes.txt")
 ```
 
 ```{r}
-# clustering based on selected pathgroup
-ave.exp_dt_hvgs = fread(file.path(data_dir, "AD progression","union_sig_genes.txt"))
+load(file.path(data_dir, "AD progression", "ast_sample.level.average.expression_filtered.Rdata"))
 
-ave.exp_dt_hvgs = ave.exp_dt[gene %in% ave.exp_dt_hvgs$Gene, ]
+ind_meta = fread(file.path(data_dir, "Fig1_data", "Abbvie_AD_progression_meta.csv")) 
+ind_meta = ind_meta[, c("Donor.ID", "Path..Group.")] %>%
+  unique()
+ind_meta[ , Donor.ID := as.character(Donor.ID)]
+
+ave.exp_dt[ind_meta, on = .(Donor.ID), path_group := i.Path..Group.]
+ggplot(
+  ave.exp_dt[gene == "HES4"],
+  aes(x = Region, y = log2(ave.exp*100))
+)  +
+  geom_boxplot() +
+  geom_jitter(width = 0.1) +
+  facet_grid(.~path_group) +
+  labs(y = "log2cpm")
+```
+
+# z-scores of genes across brain regions within donor
+```{r}
+ave.exp_dt[, zscore_donor := scale(ave.exp*100), by = .(Donor.ID, gene)]
+
+# multiplied by 100 to get reads/transcripts per million
+# double-check
+# check_dt = ave.exp_dt[gene == "GFAP" & Donor.ID == "2122", ]
+# scale(check_dt$ave.exp * 100)
+
+```
+
+
+
+```{r}
+# clustering based on selected pathgroup
+de_fs = list.files(file.path(rdir, "AD progression", "differential_expresion_results")) %>%
+  grep("_DonorID.csv", ., value = T)
+de_gs = lapply(de_fs, function(f){
+  dt = fread(file.path(rdir, "AD progression", "differential_expresion_results", f))
+  dt[, contract := f]
+  setnames(dt, "rn", "Gene")
+  return(dt[p_val_adj < 0.05, Gene])
+})
+
+de_hvgs = Reduce(union, de_gs) #genes
+ave.exp_dt_hvgs = ave.exp_dt[gene %in% de_hvgs, ]
+
+de_hvgs = Reduce(union, de_gs) #genes
+ave.exp_dt_hvgs = ave.exp_dt[gene %in% de_hvgs, ]
 
 path_group_clustering = function(ave.exp_dt_hvgs, sel_path_group, k = 5, seed = 9){
   dt = ave.exp_dt_hvgs[path_group %in% sel_path_group, ]
@@ -105,19 +148,74 @@ pathall_clust = path_group_clustering(
   k = 6
 )
 
-pathall_clust$p
-pathall_gene_clusters = pathall_clust$dt[, .(gene, cluster)] %>% unique()
+```
+
+
+``` {r}
+
+# pathall_clust$p
+# pathall_gene_clusters = pathall_clust$dt[, .(gene, cluster)] %>% unique()
+#   
+#   
+#   
+# ave.exp_dt_hvgs = fread(file.path(data_dir, "AD progression","union_sig_genes.txt"))
+
+# ave.exp_dt_hvgs = ave.exp_dt[gene %in% ave.exp_dt_hvgs$Gene, ]
+# 
+# path_group_clustering = function(ave.exp_dt_hvgs, sel_path_group, k = 5, seed = 9){
+#   dt = ave.exp_dt_hvgs[path_group %in% sel_path_group, ]
+#   dt[, ave_zscore_donor := mean(zscore_donor), by = .(gene, Region)]
+#   mtx = dt[, .(gene, ave_zscore_donor, Region)] %>% unique()
+#   mtx = dcast(mtx, gene ~ Region, value.var = "ave_zscore_donor")
+#   mtx = mtx %>% as.data.frame() %>%
+#     column_to_rownames("gene") %>% 
+#     as.matrix()
+#   
+#   library(SNFtool)
+#   set.seed(seed)
+# 
+#   diss_mtx = dist(mtx)
+#   ## compute similarity matrix as done in paper
+#   sim_mtx = 1-as.matrix(diss_mtx)/max(diss_mtx)
+#  
+#   # uses code from the Similarity Network Fusion Paper
+#   clust = SNFtool::spectralClustering(sim_mtx, K = k) # where kVal is the number of clusters you would like to partition
+#   clustLab = as.factor(clust)
+#   annot = data.table(gene = rownames(mtx), cluster = clustLab)
+#   dt[annot, on = .(gene), cluster := i.cluster]
+#   
+#   p = ComplexHeatmap::Heatmap(
+#     mtx, 
+#     show_row_names = F,
+#     cluster_columns = F,
+#     row_split = clustLab
+#   )
+#   return(list(dt = dt, clustLab = clustLab, mtx = mtx, p = p))
+# }
+# 
+# 
+# pathall_clust = path_group_clustering(
+#   ave.exp_dt_hvgs = ave.exp_dt_hvgs,
+#   sel_path_group = c(1,2,3,4),
+#   k = 6
+# )
+# 
+# pathall_clust$p
+# pathall_gene_clusters = pathall_clust$dt[, .(gene, cluster)] %>% unique()
 ```
 
 Fig 3a, b
 Can run locally
 
 ```{r}
-load(file = file.path(rdir, "AD progression", "pathall_clust.RData"))
+# load(file = file.path(rdir, "AD progression", "pathall_clust.RData"))
+
 
 gene_trends = pathall_clust$dt[, .(gene, ave_zscore_donor, Region, cluster)] %>% unique()
+gene_trends = gene_trends[!(grepl("MT-", gene)),]
 gene_trends[, ave_zscore_cluster := mean(ave_zscore_donor), by = .(cluster, Region)]
 gene_trends_cluster = gene_trends[, .(gene, ave_zscore_cluster, Region, cluster)] %>% unique()
+
 
 # rename the clusters
 gene_trends_N<-gene_trends[Region=="EC", .N, by=.(cluster)]
@@ -203,7 +301,18 @@ ggarrange(p_line , pTau_annot, NULL, abeta_annot, NULL, regionEC_annot, NULL, re
 
 ggsave(filename = file.path(rdir, "AD progression", 
                             "fig3a_with_colorbar.png"), height = 14, width = 4)
+
+# make wide format. 
+
+
+
+trends_gene = reshape(gene_trends, idvar = "gene", timevar = "Region", direction = 'wide')
+
+fwrite(trends_gene, "spatial_gene_sets.csv")
+
 ```
+
+# Pathway analysis: Pathways analysis was done on gsea and the excel files were generated with overalapping genes to choose the pathwyas for plotting - performed on the file  ~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Scripts/SP_pathways_barplots_SD.Rmd
 
 Fig 3b
 
@@ -262,8 +371,7 @@ barplot<- function(pathways,
 }
 
 
-allcluster <- fread(file.path(rdir, "AD progression", "Spatial_(Region)_trajectory_Pathways_analysis",
-"mapped_genes","allclusters.csv"))
+allcluster <- fread("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Results/AD progression/Spatial_(Region)_trajectory_Pathways_analysis/mapped_genes/allclusters_SP_asp.csv")
 
 
 allcluster[, new_name := paste0("gene set #", geneset)]
