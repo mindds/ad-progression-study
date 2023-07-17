@@ -1,0 +1,290 @@
+---
+title: "Umap-plots"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load packages
+```{r}
+require(Seurat)
+require(data.table)
+require(tidyverse)
+require(ggpubr)
+require(cowplot)
+library(rstatix)
+library(RColorBrewer)
+library(doParallel)
+library(foreach)
+```
+
+```{r}
+#directory to save the plots
+p_dir = file.path("..","Results")
+
+#load some functions - themes
+source("Helper_scripts/figure_themes.R")
+```
+
+
+Figure1: UMAP visualization and visualize the expression of marker genes through density plots
+
+```{r}
+#' custom function for figure 1b
+#' @param obj seurat object
+#' @param region string; brain region (as figure title)
+#' @param show_label T/F; show label or not; default = F
+#' @return ggplot object of dim plot
+
+dim_plot = function(obj, region, show_label = T){
+  p = DimPlot(obj, size = size, raster = F, label = show_label, group.by = "celltype") +
+      umap_theme() +
+      scale_color_manual(
+        values = c(
+          "astrocytes" = "#F38181", 
+          "microglia" = "#A3DE83", 
+          "endothelial" = "#FCE38A", 
+          "neurons" = "#EA99D5", 
+          "oligodendrocytes" = "#8BDBF5"
+      )) +
+    labs(title = region)
+  return(p)
+}
+
+
+#' custom function for figure 1c
+#' @param obj seurat object
+#' @param genes vector; genes in violin plots
+#' @return ggplot object
+
+vlnplot = function(obj, genes){
+  DefaultAssay(obj) = "RNA"
+  obj@active.ident  = factor(
+    obj$celltype,
+    levels = c("astrocytes", "microglia", "endothelial","neurons", "oligodendrocytes"))
+  p = VlnPlot(
+    obj, 
+    features = genes, 
+    stack = TRUE, sort = FALSE, flip = TRUE
+  ) +
+    scale_fill_manual(
+      values = c(
+        # astrocytes
+        "ADGRV1" = "#F38181", 
+        "ALDH1L1" = "#F38181", 
+        "AQP4" = "#F38181",
+        "GFAP" = "#F38181",
+        # microglia
+        "CD74" = "#A3DE83", 
+        "P2RY12" = "#A3DE83", 
+        # endothelial
+        "CLDN5" = "#FCE38A", 
+        "VWF" = "#FCE38A", 
+        # neurons
+        "GRIA1" = "#EA99D5", 
+        "GRIK2" = "#EA99D5", 
+        # oligodendrocytes
+        "MOBP" = "#8BDBF5", 
+        "PLP1" = "#8BDBF5"
+      )) +
+    theme(
+      legend.position = 'none',
+      axis.title.x=element_blank(),
+      plot.background = element_rect(
+        fill = "white", 
+        color = NA
+      ))
+  return(p)
+}
+```
+
+Custom function for the violin plots which show expression levels for markers
+```{r}
+# marker genes
+markers = fread(file.path("..","/Data/celltype_markers_ASP.csv"))
+vlnplot_genes = c("ADGRV1", "ALDH1L1", "AQP4", "GFAP",
+                  "CD74", "P2RY12","VWF", "CLDN5")
+vlnplot_genes = markers[gene %in% vlnplot_genes, ]
+vlnplot_genes[, celltype := factor(celltype, 
+      levels = c("Astrocytes", "Microglia", "Endothelial", 
+                  "Neurons", "Oligodendrocytes"))]
+vlnplot_genes = vlnplot_genes[order(celltype), ]
+vlnplot_genes[, gene := factor(gene, levels = vlnplot_genes$gene)]
+```
+
+
+#EC
+```{r}
+# load data
+load(file.path("../Data/Fig1_data/EC_subset.RData"))
+EC_subset$celltype = factor(
+  EC_subset$Annie_Cell_Type, 
+  labels = c("astrocytes", "endothelial", "microglia", 
+             "neurons", "oligodendrocytes")
+)
+#Idents(EC_subset) = "celltype"
+#EC_subset = EC_subset[, !Idents(EC_subset) %in% c("unknown")]
+
+# umap
+p_umap_EC = dim_plot(EC_subset,"EC")
+
+# violin plot
+p_vln_EC = vlnplot(
+  obj = EC_subset, 
+  genes = vlnplot_genes$gene
+)
+
+fig1bc_EC = ggarrange(
+  p_umap_EC,
+  p_vln_EC,
+  ncol = 1, nrow = 2,
+  heights = c(1, 1.7)
+)
+
+# ggsave(fig1bc_EC, filename = "../Results/Fig1/EC_umap.png", 
+#      height = 10, width = 4)
+rm(EC_subset)
+```
+
+
+#ITG
+```{r}
+# load data
+load(file.path("..", "Data/Fig1_data/ITG_subset.RData"))
+#Idents(rPCA) = "celltype"
+#rPCA = rPCA[, !Idents(rPCA) %in% c("unknown")]
+
+# umap
+p_umap_ITG = dim_plot(
+  obj = ITG_subset, 
+  region = "ITG"
+)
+# ggsave(p_umap_ITG, filename = "fig1b_BA20.png", width = 4, height = 4)
+
+# violin plot
+p_vln_ITG = vlnplot(
+  obj = ITG_subset, 
+  genes = vlnplot_genes$gene
+)
+# ggsave(p, filename = file.path(p_dir, "fig1c_ITG.pdf")), height = 7, width = 4)
+
+fig1bc_ITG = ggarrange(
+  p_umap_ITG,
+  p_vln_ITG,
+  ncol = 1, nrow = 2,
+  heights = c(1, 1.7)
+)
+# ggsave(fig1bc_ITG, filename = file.path(p_dir, "figure1b&1c_ITG.png"), 
+#       height = 10, width = 4)
+rm(ITG_subset)
+```
+
+## PFC (BA46)
+
+```{r}
+# load data
+#Note the data loaded here is the subset of data 
+
+load(file.path("..","Data/Fig1_data/BA46_subset.RData"))
+BA46_subset$celltype = factor(
+  BA46_subset$Annie_Cell_Type, 
+  labels = c("astrocytes", "endothelial", "microglia", 
+             "neurons", "oligodendrocytes")
+)
+#Idents(BA46_rPCA) = "celltype"
+#BA46_rPCA = BA46_rPCA[, Idents(BA46_rPCA) != "unknown"]
+
+# umap
+p_umap_PFC = dim_plot(
+  obj = BA46_subset, 
+  region = "PFC"
+)
+
+# violin plot
+p_vln_PFC = vlnplot(
+  obj = BA46_subset, 
+  genes = vlnplot_genes$gene
+)
+
+fig1bc_PFC = ggarrange(
+  p_umap_PFC,
+  p_vln_PFC,
+  ncol = 1, nrow = 2,
+  heights = c(1, 1.7)
+)
+# ggsave(fig1bc_PFC, filename = "~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Results/Figure_1/figure1b&1c_PFC.png"), 
+#        height = 10, width = 4)
+rm(BA46_subset)
+```
+
+## V2
+
+```{r}
+# load data
+load(file.path("..","Data/Fig1_data/V2_subset.RData"))
+V2_subset$celltype = factor(V2_subset$Annie_Cell_Type, 
+       labels = c("astrocytes", "endothelial", "microglia", 
+                  "neurons", "oligodendrocytes"))
+
+# umap
+p_umap_V2 = dim_plot(
+  obj = V2_subset, 
+  region = "V2"
+)
+
+# violin plot
+p_vln_V2 = vlnplot(
+  obj = V2_subset, 
+  genes = vlnplot_genes$gene
+)
+
+fig1bc_V2 = ggarrange(
+  p_umap_V2,
+  p_vln_V2,
+  ncol = 1, nrow = 2,
+  heights = c(1, 1.7)
+)
+# ggsave(fig1bc_V2, filename = "~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Results/Figure_1/figure1b&1c_V2.png"), 
+#        height = 10, width = 4)
+rm(V2_subset)
+```
+
+## V1
+
+```{r}
+load(file.path("..","Data/Fig1_data/V1_subset.RData"))
+V1_subset$celltype = factor(V1_subset$Annie_Cell_Type, 
+       labels = c("astrocytes", "endothelial", "microglia", 
+                  "neurons", "oligodendrocytes","unknown"))
+Idents(V1_subset) = "celltype"
+V1_subset = V1_subset[, Idents(V1_subset) != "unknown"]
+
+# umap
+p_umap_V1 = dim_plot(
+  obj = V1_subset, 
+  region = "V1"
+)
+
+# violin plot
+p_vln_V1 = vlnplot(
+  obj = V1_subset, 
+  genes = vlnplot_genes$gene
+)
+
+fig1bc_V1 = ggarrange(
+  p_umap_V1,
+  p_vln_V1,
+  ncol = 1, nrow = 2,
+  heights = c(1, 1.7)
+)
+#ggsave(fig1bc_V1, filename = "~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Results/Figure_1/figure1b&1c_V1.png"), 
+#       height = 10, width = 4)
+rm(V1_subset)
+
+ggarrange(fig1bc_EC, fig1bc_ITG, fig1bc_PFC, fig1bc_V2, fig1bc_V1, nrow = 1, align = "hv")
+
+ggsave("../Results/Fig1/clustering_by_celltype_marker_gene_expression.png", height = 9, width = 15)
+```
+
