@@ -1,0 +1,130 @@
+---
+title: 'Step 2: Assign Cell Types'
+output: html_document
+---
+
+Run on GPU cluster
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load source functions:
+
+```{r, message=F, warning=F}
+data_path <- "/autofs/space/mindds_001/projects/AbbvieSnRNASeq/data/"
+scripts_path <- "/autofs/space/mindds_001/projects/AbbvieSnRNASeq/scripts/"
+annie_path <- "/autofs/space/mindds_001/projects/AbbvieSnRNASeq/scripts/annie/"
+plot_dir <- paste0(annie_path, "results/plots/endothelial_cells/all_regions/")
+
+source(paste0(annie_path, "scripts/utility_scripts/plot_functions_AGB.R"))
+source(paste0(annie_path, "scripts/utility_scripts/subcluster_functions_AGB.R"))
+source(paste0(scripts_path, "de_functions.R"))
+source(paste0(scripts_path, "additional_functions.R"))
+library(patchwork)
+library(scattermore)
+library(plotly)
+
+# Define paths for data input/output
+rdata_path_in <- paste0(data_path, "Rdata/")
+rdata_path_out <- paste0(data_path, "Rdata/annie/")
+results_path <- paste0(annie_path, "results/")
+
+brain_regions <- c("BA20", "BA46", "EC", "V1", "V2")
+
+# Use 4 cores
+ncore <- 4
+
+# Load packages
+library(Seurat)
+library(data.table)
+library(monocle3)
+library(SeuratWrappers)
+library(tidyverse)
+library(cowplot)
+library(RUVSeq)
+library(DESeq2)
+library(lme4)
+library(edgeR)
+library(gridExtra)
+library(future)
+library(ggthemes)
+library(clustree)
+library(biomaRt)
+library(bbplot)
+library(ggVennDiagram)
+library(RColorBrewer)
+library(grid)
+library(doParallel)
+library(foreach)
+library(broom)
+theme_set(theme_cowplot())
+```
+
+
+Use cluster resolution 0.1 by default to identify endothelial cells
+
+```{r}
+cluster_res <- 0.1
+```
+
+Load data
+```{r}
+for (brain_region in c("BA20", "BA46", "EC", "V1", "V2")) {
+  load(paste0(rdata_path_out, brain_region, "_rPCA.Rdata"))
+  assign("tmp", get(paste0(brain_region, "_rPCA")))
+  DefaultAssay(tmp) <- "RNA"
+  assign(paste0(brain_region, "_rPCA"), tmp)
+  rm(tmp)
+}
+```
+
+
+Create dimplot for each brain region at coarse resolution 0.1
+```{r}
+for (brain_region in brain_regions) {
+  assign("reg_seurat", get(paste0(brain_region, "_rPCA")))
+  plot_dir <- paste0(results_path, "plots/all_cells/", brain_region, "/")
+  reg_seurat$integrated_snn_res.0.1 <- factor(reg_seurat$integrated_snn_res.0.1,  levels=sort(as.numeric(as.character(unique(reg_seurat$integrated_snn_res.0.1)))))
+  
+  DefaultAssay(reg_seurat) <- "integrated"
+  DimPlot(reg_seurat, reduction="umap", group.by="integrated_snn_res.0.1") +
+    ggtitle(brain_region) +
+    theme(plot.title=element_text(hjust=0.5))
+  ggsave(paste0(plot_dir, brain_region, "_DimPlot_res0.1.png"),
+         width=6, height=4, units="in", dpi=300)
+}
+```
+
+
+Visualize cell marker heatmaps at res=0.1 to identify clusters:
+```{r}
+cell_markers <- read.csv(paste0(annie_path, "cell_type_markers.csv"))
+for (brain_region in c("BA20", "BA46", "EC", "V1", "V2")) {
+  assign("reg_seurat", get(paste0(brain_region, "_rPCA")))
+  plot_dir <- paste0(results_path, "plots/all_cells/", brain_region, "/")
+  
+  DefaultAssay(reg_seurat) <- "RNA"
+  
+  # Reformat clusters as factors for visualization
+  reg_seurat$integrated_snn_res.0.1 <- factor(reg_seurat$integrated_snn_res.0.1,  levels=sort(as.numeric(as.character(unique(reg_seurat$integrated_snn_res.0.1)))))
+  
+  # Set resolution 1 clusters as cell identities
+  Idents(reg_seurat) <- reg_seurat$integrated_snn_res.0.1
+  
+  # reg_seurat <- removd_donor_clust(reg_seurat, res=0.1)
+  reg_seurat_scaled = ScaleData(reg_seurat, features = cell_markers$genes)
+  
+  # downsample to 500
+  reg_seurat_scaled = reg_seurat_scaled[, WhichCells(reg_seurat_scaled, downsample = 500)]
+  
+  do_heatmap_chunk(reg_seurat_scaled, cell_markers$genes, cell_markers$group)
+  n_genes = length(cell_markers$genes)
+  n_subclust = length(unique(Idents(reg_seurat_scaled)))
+  
+  ggsave(paste0(plot_dir, brain_region, "_CellType_Marker_Heatmap_res0.1.png"),
+         width = n_subclust*2, height = (n_genes * 0.1 + length(unique(cell_markers$group))*1), 
+         limitsize = FALSE, units="in", dpi=300)
+  
+}
+```
