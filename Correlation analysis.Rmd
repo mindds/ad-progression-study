@@ -1,0 +1,990 @@
+---
+title: "Correlation analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(
+  root.dir = "~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts"
+)
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE, 
+  message = FALSE
+) 
+
+# load required packages
+require(Seurat)
+require(data.table)
+require(tidyverse)
+require(circlize)
+require(ComplexHeatmap)
+data_dir = file.path("..", "Data")
+rdir = file.path("..", "Results")
+getwd()
+
+# directories
+
+```
+
+```{r}
+p_dir = file.path("..", "Results")
+source("Scripts/Helper_scripts/figure_themes.R")
+```
+
+Merged data
+```{r}
+# load astrocytes data
+#load(file.path("Data/Fig5_data/cluster_groups_subset.RData"))
+
+#To get the astrocyte data, run the following code on mindds
+
+# directories
+data_dir = file.path("..", "..", "data")
+results_dir = file.path("..", "..", "results")
+p_dir = file.path(results_dir, "plots", "all_brain_regions")
+
+# load astrocyte integrated data
+# BA20 ast
+load(file.path(data_dir, "Rdata", "ast_removed_logNormal_CCA_R4.0.Rdata"))
+BA20_ast = ast_CCA
+rm(ast_CCA)
+
+# BA46 ast
+load(file.path(data_dir, "BA46_ast_CCA_data1B_0614.Rdata"))
+BA46_ast = ast_CCA
+rm(ast_CCA)
+
+# V2 ast
+load(file.path(data_dir, "V2_ast_CCA_data1B_0614.Rdata"))
+V2_ast = ast_CCA
+rm(ast_CCA)
+
+# V1 ast
+load(file.path(data_dir, "V1_ast_CCA_data1B_0614.Rdata"))
+V1_ast = ast_CCA
+rm(ast_CCA)
+
+# EC ast
+load(file.path(data_dir, "EC_ast_CCA_data1B_0614.Rdata"))
+EC_ast = ast_CCA
+rm(ast_CCA)
+
+# load cluster annotation
+clust_annot2 = fread(file.path(results_dir, "ast_cluster.annotation_HVG.after_Dec08.csv"), 
+                     stringsAsFactors = F)
+clust_annot2[, cluster := cluster %>% as.character()]
+
+#' annotate cells based on annot table
+#' 
+#' @param obj seurat obj
+#' @param subcluster_col string; 
+annot_obj = function(obj, subcluster_col, annotdt){
+  # remove unwanted subclusters
+  cell_label = obj@meta.data[, subcluster_col]
+  if(is.factor(cell_label)) cell_label = cell_label %>% unfactor() %>% as.character()
+  obj = obj[, cell_label %in% annotdt$from]
+  cell_label = obj@meta.data[, subcluster_col]
+  if(is.factor(cell_label)) cell_label = cell_label %>% unfactor() %>% as.character()
+  
+  obj$cluster_group = annotdt[
+    data.table(from = cell_label),
+    on = .(from), to]
+  DefaultAssay(obj) = "RNA"
+  Idents(obj) = "cluster_group"
+  return(obj)
+}
+```
+
+
+# relabel cells by cluster annotation
+```{r}
+EC_ast = annot_obj(
+  obj = EC_ast,
+  subcluster_col = "integrated_snn_res.0.3",
+  annotdt = clust_annot2[region == "EC", 
+                       .(from = cluster,
+                         to = cluster_group)]
+)
+BA20_ast = annot_obj(
+  obj = BA20_ast,
+  subcluster_col = "integrated_snn_res.0.3",
+  annotdt = clust_annot2[region == "BA20", 
+                       .(from = cluster,
+                         to = cluster_group)]
+)
+BA46_ast = annot_obj(
+  obj = BA46_ast,
+  subcluster_col = "integrated_snn_res.0.3",
+  annotdt = clust_annot2[region == "BA46", 
+                       .(from = cluster,
+                         to = cluster_group)]
+)
+V2_ast = annot_obj(
+  obj = V2_ast,
+  subcluster_col = "integrated_snn_res.0.3",
+  annotdt = clust_annot2[region == "V2", 
+                       .(from = cluster,
+                         to = cluster_group)]
+)
+V1_ast = annot_obj(
+  obj = V1_ast,
+  subcluster_col = "integrated_snn_res.0.3",
+  annotdt = clust_annot2[region == "V1", 
+                       .(from = cluster,
+                         to = cluster_group)]
+)
+```
+
+
+# DE functions
+```{r}
+#' merge seurat obejcts
+#'
+#' @return a merged seurat obejct
+merge_seurat = function(...){
+  merged = Reduce(merge, list(...))
+  return(merged)
+}
+```
+
+```{r}
+get_genes = function(obj){
+  DefaultAssay(obj) = "RNA"
+  return(rownames(obj))
+}
+genes = list(
+  BA20 = get_genes(BA20_ast),
+  BA46 = get_genes(BA46_ast),
+  EC = get_genes(EC_ast),
+  V1 = get_genes(V1_ast),
+  V2 = get_genes(V2_ast)
+)
+
+union_genes = Reduce(union, genes)
+inter_genes = Reduce(intersect, genes)
+
+length(union_genes)
+length(inter_genes)
+writeLines(inter_genes, file.path(data_dir, "ast_intersect_seuratobject_genes.txt"))
+
+load(file.path(data_dir, "Rdata", "ast_all.brain.regions_cluster.group_removed.Rdata"))
+nrow(merged)
+```
+
+
+# DE: astH1 vs non-astH1
+```{r}
+merged = merge_seurat(
+  EC_ast,
+  BA20_ast,
+  BA46_ast,
+  V2_ast,
+  V1_ast
+)
+merged = merged[inter_genes, ]
+save(merged, file = file.path(data_dir, "Rdata", "ast_all.brain.regions_cluster.group_removed.Rdata"))
+
+```
+
+
+#Fig5A
+
+
+This code is used to do correlation analysis based on HVGs
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# load required packages
+require(dendextend)
+require(SNFtool)
+require(data.table)
+require(tidyverse)
+
+# load required functions
+source(file.path("..", "subcluster_functions.R"))
+
+# directories
+data_dir = file.path("..", "..", "data")
+results_dir = file.path("..", "..", "results")
+p_dir = file.path(results_dir, "plots", "all_brain_regions")
+
+# load HVGs
+ast_hvgs_dts = fread(file.path(results_dir, "ast_HVG_all.region.csv"))
+ast_hvgs_dts.2 = fread(file.path(results_dir, "ast_HVG_all.region_removed.badclusters.csv"))
+
+# load DE analysis result
+load(file.path(data_dir, "gene_deg_all.Rdata"))
+```
+
+
+# a superset of HVGs
+```{r}
+# original HVGs used for clustering
+ast_hvgs = ast_hvgs_dts[, hvgs] %>%
+  unique() %>%
+  sort()
+# number of hvgs: 2855
+ast_hvgs %>% length()
+# this set of HVGs include some of the microglia genes because we have some contamination 
+# clusters
+
+
+# HVGs after remove containmination/donor specific subclusters
+ast_hvgs.2 = ast_hvgs_dts.2[, hvgs] %>%
+  unique() %>%
+  sort()
+# number of hvgs: 2942
+ast_hvgs.2 %>% length()
+
+# overlap: 0.9530931 
+length(intersect(ast_hvgs, ast_hvgs.2))/length(ast_hvgs.2)
+
+# venn of HVGs: before & after remove bad clusters
+ggVennDiagram::ggVennDiagram(
+  list(
+    origin_HVG = ast_hvgs,
+    new_HVG = ast_hvgs.2
+  ), 
+  label_alpha=0,
+  label = "count"
+  ) +
+  scale_fill_gradient(low="white",high = "red")
+
+ggVennDiagram(
+  split(ast_hvgs_dts.2, ast_hvgs_dts.2$region) %>%
+    map(., ~(.x$hvgs)),
+  label_alpha=0,
+  label = "count"
+) +
+  scale_fill_gradient(low="white",high = "red")
+```
+
+
+# gene rank correlation
+
+## custome functions
+```{r}
+#' subset DE analysis list by selected genes
+#' 
+#' @param deg_dts list; a list of data.table that contains DE analysis results
+#' @param features vector; a vector of gene names
+#' 
+#' @return a list of data.table for given genes
+subset_deg = function(deg_dts, features){
+  pblapply(deg_dts, function(deg_dt){
+    return(deg_dt[gene %in% features, ])
+  })
+}
+
+#' correlation analysis based on DE results (avg.logFC)
+#' 
+#' @param deg_dts list; a list of data.table that 
+#' @param method string; method used for correlation analysis (default = "pearson")
+#' 
+#' @return a data.table contains correlation analysis results; 
+cor_gene_ranks = function(deg_dts, method = "pearson"){
+  # intersect of genes from all DE results
+  inter_genes = Reduce(intersect, map(deg_dts, ~.x[, gene]))
+  deg_dts = lapply(deg_dts, function(deg_dt){
+    deg_dt[gene %in% inter_genes, ]
+  })
+  all_deg_dt = do.call(rbind, deg_dts)
+  
+  cors = pblapply(deg_dts, function(region_dt){
+    subcluster_dts = split(region_dt, region_dt$cluster)
+    dts = lapply(subcluster_dts, function(subcluster_dt){
+      dt = subcluster_dt[all_deg_dt, on = .(gene)]
+      # p-value
+      dt[, avg.log2FC_cor_p := cor_test_results(
+        x = avg_log2FC, y = i.avg_log2FC, 
+        value = "p.value", method = method), 
+        by = .(i.brain_region, i.cluster)]
+      # R
+      dt[, avg.log2FC_cor_R := cor_test_results(
+        x = avg_log2FC, y = i.avg_log2FC, 
+        value = "estimate", method = method), 
+        by = .(i.brain_region, i.cluster)]
+      return(
+        dt[, .(subcluster1 = paste(brain_region, cluster, sep = ":"), 
+               subcluster2 = paste(i.brain_region, i.cluster, sep = ":"), 
+               avg.log2FC_cor_p, avg.log2FC_cor_R)] %>% unique()
+             )
+    })
+    dts = do.call(rbind, dts)
+    return(dts)
+  })
+  cors = do.call(rbind, cors)
+  return(cors)
+}
+
+#' calculate affinity by Ayush
+affinityCustom = function (diff, sigma = 0.5) 
+{
+  N <- nrow(diff)
+  diff <- (diff + t(diff))/2
+  diag(diff) <- 0
+  sortedColumns <- as.matrix(t(apply(diff, 2, sort)))
+  finiteMean <- function(x) {
+    return(mean(x[is.finite(x)]))
+  }
+  # this line has been modified to remove [, 1:K + 1]
+  means <- apply(sortedColumns, 1, finiteMean) + 
+    .Machine$double.eps
+  avg <- function(x, y) {
+    return((x + y)/2)
+  }
+  Sig <- outer(means, means, avg)/3 * 2 + diff/3 + .Machine$double.eps
+  Sig[Sig <= .Machine$double.eps] <- .Machine$double.eps
+  densities <- dnorm(diff, 0, sigma * Sig, log = FALSE)
+  W <- (densities + t(densities))/2
+  return(W)
+}
+
+
+#' spectral clustering
+#'
+#' @param mtx matrix
+#' @param k numeric; numer of clusters
+#' 
+#' @return a vector of clusters
+spectral_clustering = function(mtx, k, seed = 77){
+  set.seed(seed)
+
+  # calculate distance matrix
+  distM = mtx %>% dist2(., .) %>% .^(1/2)
+  # calculate similarity matrix
+  simM = affinityCustom(distM)
+  # perform spectral clustering
+  clustA = spectralClustering(simM, K = k)
+  
+  return(clustA)
+}
+```
+
+
+## based on original HVGs used for clustering
+```{r}
+# DE analysis results
+gene_deg.1 = subset_deg(
+  deg_dts = gene_deg_all, 
+  features = ast_hvgs
+)
+cor1 = cor_gene_ranks(
+  deg_dts = gene_deg.1
+)
+
+# heatmap
+cor1_mtx = cor1 %>% 
+  dcast(subcluster1 ~ subcluster2, value.var = "avg.log2FC_cor_R") %>%
+  as.data.frame() %>%
+  column_to_rownames("subcluster1") %>% 
+  as.matrix()
+
+Heatmap(cor1_mtx)
+
+# hierarchical clustering
+set.seed(1234)
+dend1 = hclust(dist(cor1_mtx))
+plot(dend1)
+
+# spectral clustering
+sclust1 = spectral_clustering(cor1_mtx, k = 10)
+Heatmap(cor1_mtx,
+        row_split = sclust1,
+        column_split = sclust1,
+        cluster_rows = F,
+        cluster_columns = F)
+```
+
+## based on HVGs after remove containmination/donor specific subclusters
+```{r}
+# DE analysis results
+gene_deg.2 = subset_deg(
+  deg_dts = gene_deg_all, 
+  features = ast_hvgs.2
+)
+cor2 = cor_gene_ranks(
+  deg_dts = gene_deg.2
+)
+
+# heatmap
+cor2_mtx = cor2 %>% 
+  dcast(subcluster1 ~ subcluster2, value.var = "avg.log2FC_cor_R") %>%
+  as.data.frame() %>%
+  column_to_rownames("subcluster1") %>% 
+  as.matrix()
+
+
+# hierarchical clustering
+# require(dendextend)
+# library(dendsort)
+# set.seed(1234)
+# dend2 = hclust(dist(cor2_mtx))
+# row_dend = dendsort(dend2)
+# col_dend = dendsort(hclust(dist(t(cor2_mtx))))
+# plot(dend2)
+# plot(row_dend)
+
+
+# spectral clustering
+sclust2 = spectral_clustering(cor2_mtx, k = 10)
+Heatmap(cor2_mtx,
+        row_split = sclust2,
+        column_split = sclust2)
+
+# cluster annotation
+# Hs
+clust_annot2 = data.table(
+  region_cluster = c("V2:2", "V1:3", "V1:0", "BA20:0", "V2:0", "BA46:0"),
+  cluster_group = "astH1"
+)
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("EC:9", "V1:2", "EC:6", "EC:5", "EC:0"),
+    cluster_group = "astH2"
+))
+
+# IMs
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("V1:8", "EC:8", "BA46:6"),
+    cluster_group = "astIM1"
+))
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("V2:1", "BA20:1", "BA46:1"),
+    cluster_group = "astIM2"
+))
+
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("BA46:4"),
+    cluster_group = "astIM3"
+))
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("V2:4", "BA20:2", "V1:6", "BA46:3"),
+    cluster_group = "astIM4"
+))
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("V1:1"),
+    cluster_group = "astIM5"
+))
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("EC:1", "BA20:5"),
+    cluster_group = "astIM6"
+))
+# Rs
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("V2:5", "BA20:4", "V1:5", "EC:3"),
+    cluster_group = "astR2"
+))
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("EC:2", "V2:3", "BA20:3", "BA46:2", "V1:4"),
+    cluster_group = "astR1"
+))
+
+# group
+clust_annot2[, cluster_group := factor(cluster_group, levels = clust_annot2$cluster_group %>% unique())]
+clust_annot2[, type := ifelse(grepl("astR", cluster_group), "astR",
+                       ifelse(grepl("astH", cluster_group), "astH",
+                              "IM"))]
+clust_annot2[, color := ifelse(grepl("astR", cluster_group), "#C25757",
+                       ifelse(grepl("astH", cluster_group), "#3A68AE",
+                              "#E9C61D"))]
+clust_annot2[, region := strsplit(region_cluster, ":") %>% 
+               map(., ~(.x[1])) %>% 
+               unlist()]
+clust_annot2[, cluster := strsplit(region_cluster, ":") %>% 
+               map(., ~(.x[2])) %>% 
+               unlist()]
+
+fwrite(clust_annot2, file = file.path(results_dir, "ast_cluster.annotation_HVG.after_Dec08.csv"))
+
+clust_annot2 = fread(file.path(results_dir, "ast_cluster.annotation_HVG.after_Dec08.csv"))
+nrow(clust_annot2)
+dim(cor2_mtx)
+cor2_mtx_order = clust_annot2[data.table(region_cluster = rownames(cor2_mtx)), 
+                           on = .(region_cluster)]
+require(circlize)
+col_fun = colorRamp2(c(-1, 0, 1), c("#42B842", "white", "#862D84"))
+
+colnames(cor2_mtx) = gsub("BA20", "ITG", colnames(cor2_mtx))
+colnames(cor2_mtx) = gsub("BA46", "PFC", colnames(cor2_mtx))
+colnames(cor2_mtx) = gsub("V2", "SVC", colnames(cor2_mtx))
+colnames(cor2_mtx) = gsub("V1", "PVC", colnames(cor2_mtx))
+rownames(cor2_mtx) = gsub("BA20", "ITG", rownames(cor2_mtx))
+rownames(cor2_mtx) = gsub("BA46", "PFC", rownames(cor2_mtx))
+rownames(cor2_mtx) = gsub("V2", "SVC", rownames(cor2_mtx))
+rownames(cor2_mtx) = gsub("V1", "PVC", rownames(cor2_mtx))
+write.csv(cor2_mtx, file = file.path(results_dir, "tables", "figure2_ast_cluster_correlation.csv"))
+
+cor2_mtx_order$region_cluster = gsub("BA20", "ITG", cor2_mtx_order$region_cluster)
+cor2_mtx_order$region_cluster = gsub("BA46", "PFC", cor2_mtx_order$region_cluster)
+cor2_mtx_order$region_cluster = gsub("V2", "SVC", cor2_mtx_order$region_cluster)
+cor2_mtx_order$region_cluster = gsub("V1", "PVC", cor2_mtx_order$region_cluster)
+
+clust_annot2[, region_cluster_raw := region_cluster]
+clust_annot2$region_cluster = gsub("BA20", "ITG", clust_annot2$region_cluster)
+clust_annot2$region_cluster = gsub("BA46", "PFC", clust_annot2$region_cluster)
+clust_annot2$region_cluster = gsub("V2", "SVC", clust_annot2$region_cluster)
+clust_annot2$region_cluster = gsub("V1", "PVC", clust_annot2$region_cluster)
+fwrite(clust_annot2, file.path(results_dir, "tables", "figure2_ast_cluster_group_annotation.csv"))
+
+
+```
+
+
+
+```{r}
+
+# load cluster group annotation
+clust_annot = fread(file.path("Data/Fig5_data/figure2_ast_cluster_group_annotation.csv"))
+cluster_orders = c("astH1","astH2","astIM1","astIM2","astIM3","astIM4","astIM5","astIM6","astR2","astR1")
+clust_annot[, cluster_group := factor(cluster_group, levels = cluster_orders)]
+
+# load correlation analysis results
+cor_mtx = read.csv(file.path("Data/Fig5_data/figure2_ast_cluster_correlation.csv"), row.names = 1) %>%
+  as.matrix()
+colnames(cor_mtx) = gsub("\\.", ":", colnames(cor_mtx))
+cor_annot = clust_annot[data.table(region_cluster = rownames(cor_mtx)),
+                         on = .(region_cluster)]
+
+colors = c(
+  "astH1" = "#2F79D2",
+  "astH2" = "#7DCDF0", 
+  "astIM1" = "#66c2a5",
+  "astIM2" = "#abdda4", 
+  "astIM3" = "#e6f598",
+  "astIM4" = "#fee08b",
+  "astIM5" = "#fdae61",
+  "astIM6" = "#f46d43",
+  "astR2" = "#D2514F", 
+  "astR1" = "#C22023"
+)
+
+cor_annot[, color := colors[cluster_group]]
+clust_annot[, color := colors[cluster_group]]
+
+cluster_group_labels = as.list(cor_annot$cluster_group)
+  
+row_annot = rowAnnotation(
+  df = cor_annot[, .(clusters = cluster_group)],
+  col = list(clusters = colors),
+  annotation_width = unit(c(1, 4), 'cm'),
+  gap = unit(1, 'mm')
+)
+col_annot = HeatmapAnnotation(
+  df = cor_annot[, .(clusters = cluster_group)],
+  col = list(clusters = colors),
+  annotation_width = unit(c(1, 4), 'cm'),
+  gap = unit(1, 'mm'),
+  show_legend = F
+)
+
+col_fun = colorRamp2(c(-1, 0, 1), c("blue", "white", "red"))
+p_h = Heatmap(
+  cor_mtx,
+  # color scale
+  col = col_fun, 
+  # annotations
+  right_annotation = row_annot,
+  top_annotation = col_annot,
+  # order of clusters (column & row of heatmap)
+  row_order = clust_annot$region_cluster,
+  column_order = clust_annot$region_cluster,
+  # split heatmap by cluster group
+  row_split = cor_annot$cluster_group,
+  column_split = cor_annot$cluster_group,
+  name = "correlation",
+  row_names_side = "right",
+  column_names_side = "top",
+  row_title_side = "right",
+  column_title_side = "top",
+  row_title_gp = gpar(fontface = "bold", fontsize = 15),      
+  column_title_gp = gpar(fontface = "bold",fontsize = 15),
+  column_title_rot = 90,
+  row_title_rot = 0,
+  # black box around the cluster
+  layer_fun = function(j, i, x, y, width, height, fill, slice_r, slice_c){
+    v = pindex(cor_mtx, i, j)
+    if(sum(v > 0.4)/length(v) > 0.4 & j[1] == i[1]) {
+      grid.rect(gp = gpar(lwd = 3, fill = "transparent"))
+    }
+  }
+)
+
+png(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Results/Figure_5/fig5a.png"),
+    width = 700, height = 700)
+draw(p_h)
+dev.off()
+```
+# Figure 5b
+
+proportion of CERAD cross brain region
+
+```{r}
+# proportion_bar = function(path_group, groups, regions, colors){
+#   tlb = table(
+#     path_group = paste0("Path ", path_group), 
+#     group = groups,
+#     region = regions
+#   )
+#   tlb = tlb %>%
+#     as.data.frame() %>%
+#     setDT()
+#   setnames(tlb, "Freq", "ncells")
+#   levels(tlb$region)[match("BA20",levels(tlb$region))] <- "ITG"
+#   levels(tlb$region)[match("BA46",levels(tlb$region))] <- "PFC"
+#   tlb[, region := factor(region, levels = c("EC", "ITG", "PFC", "V2", "V1"))]
+#   tlb[, total_cells := sum(ncells), by = .(region, path_group)]
+#   tlb[, pct := ncells/total_cells]
+#   
+#   tlb[, g_ncells := sum(ncells), by = .(group, path_group)]
+#   tlb[, g_sum_cells := sum(ncells)]
+#   tlb[, g_pct := g_ncells/g_sum_cells]
+#   
+#   tlb[, binomial_p := ifelse(g_pct == 0, 100, 
+#           binom.test(ncells, total_cells, p = g_pct,
+#             alternative = "two.sided",
+#             conf.level = 0.95)$p.value), by = rownames(tlb)]
+#   
+#   tlb[, binomial_p_label := ifelse(binomial_p == 100, "",
+#                               ifelse(binomial_p > 0.05, "NS",
+#                               ifelse(binomial_p > 0.01, "*",
+#                                ifelse(binomial_p > 0.001, "**", 
+#                                 ifelse(binomial_p <= 0.001, "***",
+#                                        "")))))]
+# 
+#   tlb[, group := factor(group, levels = names(colors))]
+#   
+#   p = ggplot(tlb, 
+#        aes(x = path_group, y = pct, fill = group)) +
+#     geom_bar(stat = "identity", position="fill", color = "black")  +
+#     # geom_text(data = subset(tlb, ncells!= 0),
+#     #           aes(label = paste0(round(pct * 100, 1),"%")), 
+#     #           position = position_stack(vjust = 0.5), size = 3,
+#     #           angle = 90) +
+#     scale_y_continuous(labels = scales::percent) +
+#     facet_grid(. ~ region, space = "free_x", scales = "free_x") +
+#     my_border_theme() +
+#     theme(legend.position="top") +
+#     theme(axis.text.x=element_text(size= 10, angle = 90)) +
+#     labs(y = "Proportion", x = "Brain regions") +
+#     scale_fill_manual(
+#       name = "ast clusters",
+#       values = colors
+#     ) 
+#   return(p)
+# }
+# 
+# p_IMHR = proportion_bar(
+#   path_group = cluster_groups_subset$Path..Group., 
+#   groups = gsub("IM\\d$", "IM", cluster_groups_subset$cluster_group),
+#   regions = cluster_groups_subset$Unified_region, 
+#   colors = c(
+#     "astH1" = "#2F79D2", # "#3A8CAF", 
+#     "astH2" = "#7DCDF0", #"#66c2a5",
+#     "astIM" = "#FFFDA2",
+#     "astR2" = "#D2514F", #"#EB6532",
+#     "astR1" = "#C22023"
+#   )
+# )
+# p_IMHR
+# ggsave(p_IMHR, filename = file.path(p_dir, "fig4b_p_IMHR_05022022.png"), 
+#        height = 5, width = 8)
+```
+
+
+#Fig 5b
+```{r}
+load("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Fig5_data/merged_4c.rdata")
+
+merged_4c <- merged_new
+
+astHR = merged_4c[, merged_4c$cluster_group %in% c("astH1", "astH2", "astR1", "astR2")]
+
+avge = AverageExpression(merged_4c, assays = "RNA", features = rownames(merged_4c)) %>%
+  .[["RNA"]]
+avge = avge %>% 
+  as.data.frame() %>%
+  rownames_to_column("gene_name") %>%
+  as.data.table() %>%
+  melt(id.vars = c("gene_name"), variable.name = "clusters", 
+       value.name = "clusters_ave_exp") %>%
+  .[, ave_exp_z := scale(clusters_ave_exp), by = .(gene_name)]
+avge = avge %>% 
+  dcast(gene_name ~ clusters, value.var = "ave_exp_z")
+
+
+zcut = 0
+
+pct = 0.5
+
+astH1 = fread(file.path("Data/fig5_data/astH1_de_12112021.csv"))
+astH2 = fread(file.path("Data/fig5_data/astH2_de_12112021.csv"))
+astH1vsH2 = fread(file.path("Data/fig5_data/astH1vsastH2_de_12112021.csv"))
+astR1 = fread(file.path("Data/fig5_data/astR1_de_12112021.csv"))
+astR2 = fread(file.path("Data/fig5_data/astR2_de_12112021.csv"))
+astR1vsR2 = fread(file.path("Data/fig5_data/astR1vsastR2_de_12112021.csv"))
+
+# H1,H2 common markers
+astH1H2_c = Reduce(intersect,
+                   list(
+                     astH1[pct.1 > pct, gene_name],
+                     astH2[pct.1 > pct, gene_name],
+                     avge[astH1 > zcut & astH2 > zcut & astR1 < -zcut & astR2 < -zcut, gene_name]
+                   )
+)
+
+# R1,R2 common markers
+astR1R2_c = Reduce(intersect,
+                   list(
+                     astR1[pct.1 > pct, gene_name],
+                     astR2[pct.1 > pct, gene_name],
+                     avge[astR1 > zcut & astR2 > zcut & astH1 < -zcut & astH2 < -zcut, gene_name]
+                   )
+)
+
+# H1 markers
+astH1_gs = Reduce(intersect,
+                  list(
+                    astH1[pct.1 > pct, gene_name],
+                    avge[astH1 > zcut & astH2 < 0 & astR1 < 0 & astR2 < 0, gene_name]
+                  )
+)
+
+# H2 genes
+astH2_gs = Reduce(intersect,
+                  list(
+                    astH2[pct.1 > pct, gene_name],
+                    avge[astH2 > zcut & astH1 < 0 & astR1 < 0 & astR2 < 0, gene_name]
+                  )
+)
+
+# R1 markers
+astR1_gs = Reduce(intersect,
+                  list(
+                    astR1[pct.1 > pct, gene_name],
+                    avge[astR1 > zcut & astH2 < 0 & astH1 < 0 & astR2 < 0, gene_name]
+                  )
+)
+
+# R2 genes
+astR2_gs = Reduce(intersect,
+                  list(
+                    astR2[pct.1 > pct, gene_name],
+                    avge[astR2 > zcut & astH1 < 0 & astR1 < 0 & astH2 < 0, gene_name]
+                  )
+)
+
+
+fig3c_dt = rbind(
+  data.table(
+    gene = astH1_gs,
+    group = "astH1"
+  ),
+  data.table(
+    gene = astH2_gs,
+    group = "astH2"
+  ),
+  data.table(
+    gene = astR1_gs,
+    group = "astR1"
+  ),
+  data.table(
+    gene = astR2_gs,
+    group = "astR2"
+  ),
+  data.table(
+    gene = astH1H2_c,
+    group = "astH1/H2 common"
+  ),
+  data.table(
+    gene = astR1R2_c,
+    group = "astR1/R2 common"
+  )
+)
+fig3c_dt[, group := factor(group, levels = c("astH1", "astH2", "astH1/H2 common",
+                                             "astR1", "astR2", "astR1/R2 common"))]
+
+
+fig5bgenes = c("GJA1","CTNNA2", "EFNA5", "FGFR2", "HPSE2", "IGF1R", "KCNMA1", "MBNL2", "NFE2L2", "NRF1", "NRG2", "AKAP9", "BCL2", "ETNPPL","GLUD1","MT-ATP6", "MT-CO1", "MT-CO2", "MT-CO3", "MT-ND1", "MT-ND3", "RBMS3", "ALDH1L1", "CD47","EGFR", "EGLN3", "ERBB4", "GLUL", "GRM3", "HIF3A", "LRP1","MEGF10", "NFIA","NFIB", "NRXN1","NTRK3","PON2","PTN","RYR3","SLC1A2","SLC1A3","SYNE1","ADAMTSL3","AQP1","CAMK2D","GAB1","HIFIA","IRS2","LONP2","MAP4K3","SOD2","SORT1","EZR","CLU","GAREM1","GRIA1","LRIG1","MAPK1","MARK3","PRKCA","TRA2A","TRAK1","ACTB","APP","AQP4","CD44","CRYAB","ECE1","FGFR1","GFAP","HSPB1","HSPB8","LAMA1","MAOB","MAP1B","MAPT","MT1E","MT2A","PRDX6","S100B","VCAN")
+fig5b_dt <- fig3c_dt[gene %in% fig5bgenes,]
+fig5b_dt<-add_row(fig5b_dt, gene = "GJA1", group = "astH1/H2 common")
+
+obj = merged_4c
+features_dt = fig3c_dt
+sel_group = "astH1"
+
+do_dotplot = function(obj, features_dt, sel_group = NULL, h = 20, w = 7){
+  DefaultAssay(obj) = "RNA"
+  
+  if(!is.null(sel_group)){
+    features_dt = features_dt[group %in% sel_group,]
+  }
+  avge = DotPlot(obj, features = features_dt$gene)$data %>%
+    as.data.frame() %>%
+    setDT()
+  avge = avge[id %in% c("astH1", "astH2", "astR1", "astR2"), ]
+  avge[, group := features_dt[avge, on = c("gene" = "features.plot"), group]]
+  avge[, group := factor(group, levels = c(
+    "astH1", "astH2", "astH1/H2 common",
+    "astR1", "astR2", "astR1/R2 common"
+  ))]
+  avge[, sugroup := features_dt[avge, on = c("gene" = "features.plot"), group]]
+  avge[, features.plot := features.plot %>% as.character()]
+  avge[, features.plot := factor(features.plot, 
+      levels = sort(features.plot %>% unique(), decreasing = T))]
+  
+   pd = ggplot(avge, aes(
+     x = id, y = features.plot, 
+     color = avg.exp.scaled, size = pct.exp)
+    ) +
+    geom_point() +
+    scale_color_gradient2(
+        name = "Expression \n z-score", 
+        low="#2F79D2",
+        mid="white",
+        high="#C22023", na.value = "gray", 
+        midpoint = 0,
+        limits = c(-2.1, 2.5)
+      ) +
+     scale_size(
+        range = c(1, 6),
+        breaks = c(25, 50, 75, 100)
+     ) +
+     facet_grid(group ~ ., space = "free", scales = "free") +
+     my_border_theme()+ 
+     labs(y = "Genes")
+  return(list(p = pd, data = avge))
+}
+
+# changing the data.table to remove MT genes:
+
+fig5b_dt = fread("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Scripts-git/ad-progression-study/genes_fig5c.csv")
+
+fig5b_H = do_dotplot(
+  merged_4c, features_dt = fig5b_dt,
+  sel_group = c("astH1", "astH2", "astH1/H2 common")
+)
+fig5b_R = do_dotplot(
+  merged_4c, features_dt = fig5b_dt,
+  sel_group = c("astR1", "astR2", "astR1/R2 common")
+)
+
+fig5b_H$data$avg.exp.scaled %>% range()
+fig5b_R$data$avg.exp.scaled %>% range()
+
+require(ggpubr)
+fig5b = ggarrange(
+  fig5b_H$p + theme(axis.title.x = element_blank()) + theme(axis.text.x = element_text(angle = 15)),
+  fig5b_R$p + theme(axis.title.y = element_blank() + theme(axis.text.x = element_text(15)),
+                    axis.title.x = element_blank()) + theme(axis.text.x = element_text(angle = 15)),
+  ncol = 2, nrow = 1,
+  align = "hv",
+  common.legend = T,
+  legend = "right"
+)
+#fwrite(fig3c_dt, file.path(results_dir, "ast_group_zscore_markers.csv"))
+
+# p_fig3c = do_dotplot(astHR, features_dt = fig3c_dt)
+
+fig5b
+
+ggsave(
+  fig5b, 
+  filename = file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Results/Figure_5/figure5c.png"), 
+  height = 10, width = 8,
+  limitsize = FALSE
+)
+
+#fwrite(fig5b_dt, "data.csv")
+#fig3c_dt = fread(file.path(data_dir, "Alberto_ast_group_markers.csv"))
+
+p_astH1 = do_dotplot(merged_4c, features_dt = fig5b_dt, sel_group = "astH1")
+p_astH2 = do_dotplot(merged_4c, features_dt = fig5b_dt, sel_group = "astH2")
+p_astR1 = do_dotplot(merged_4c, features_dt = fig5b_dt, sel_group = "astR1", h = 60)
+p_astR2 = do_dotplot(merged_4c, features_dt = fig5b_dt, sel_group = "astR2")
+p_astR1R1c = do_dotplot(merged_4c, features_dt = fig5b_dt, sel_group = "astR1/R2 common", h = 60)
+p_astH1H2c = do_dotplot(merged_4c, features_dt = fig5b_dt, sel_group = "astH1/H2 common", h = 60)
+```
+
+#Fig 5d
+
+```{r}
+ncell_dt = fread(file.path(data_dir, "proportion_cells.csv"))
+ncell_dt[, ast_cluster := ifelse(is.na(group), "astIM", group)]
+ncell_dt[, ast_cluster := factor(ast_cluster, labels = c("astH", "astH", "astIM", "astR", "astR"))]
+ncell_dt2 = ncell_dt[, .(ncells_ast_cluster = sum(ncells)), by = .(ast_cluster, DonorID, region)]
+ncell_dt2[, region := factor(region, levels = c("EC", "ITG", "PFC", "V2", "V1"))]
+
+ncell_dt2[, ncell_sample := sum(ncells_ast_cluster), by = .(DonorID, region)]
+ncell_dt2[, pct_sample := ncells_ast_cluster/ncell_sample]
+
+ncell_dt2[ncell_dt, on = .(DonorID), path_group := i.path_group]
+
+ncell_dt2[, mean_pct_trend := mean(pct_sample, na.rm = T), by = .(path_group, region, ast_cluster)]
+ncell_dt2[, mean_id := paste(region, path_group, ast_cluster, sep = "_")]
+ncell_dt2[, sd_pct_trend := sd(pct_sample, na.rm = T), by = .(path_group, region, ast_cluster)]
+ncell_path = copy(ncell_dt2)
+ncell_path[, region := factor(region, levels = c("EC", "ITG", "PFC", "V2", "V1"))]
+ncell_path[, path_mean_pct_trend := mean(pct_sample, na.rm = T), by = .(path_group, ast_cluster)]
+ncell_path[, path_sd_pct_trend := sd(pct_sample, na.rm = T), by = .(path_group, ast_cluster)]
+ncell_path[, path_median_pct_trend := mean(pct_sample, na.rm = T), by = .(path_group, ast_cluster)]
+ncell_path = ncell_path[, .(path_group, region, ast_cluster, path_mean_pct_trend, path_sd_pct_trend, path_median_pct_trend)] %>% unique()
+ncell_region = copy(ncell_dt2)
+ncell_region[, region_mean_pct_trend := mean(pct_sample, na.rm = T), by = .(region, ast_cluster)]
+ncell_region[, region_median_pct_trend := median(pct_sample, na.rm = T), by = .(region, ast_cluster)]
+ncell_region[, region := factor(region, levels = c("EC", "ITG", "PFC", "V2", "V1"))]
+ncell_region[, region_sd_pct_trend := sd(pct_sample, na.rm = T), by = .(region, ast_cluster)]
+ncell_region = ncell_region[, .(path_group, region, ast_cluster, region_mean_pct_trend, region_sd_pct_trend, region_median_pct_trend)] %>% unique()
+
+ncell_path<- ncell_path[,pathology_groups := gsub("Path ", "", path_group)]
+ncell_dt2<- ncell_dt2[,pathology_groups := gsub("Path ", "", path_group)]
+
+ggplot(
+  unique(ncell_path[, .(pathology_groups, path_mean_pct_trend, ast_cluster)])
+) +
+  geom_bar(aes(x = pathology_groups, y = path_mean_pct_trend, group = ast_cluster,
+                fill = ast_cluster), stat = "identity", width = 0.4) +
+  facet_grid(ast_cluster~.) +
+  my_border_theme() +
+  labs(x = "Pathology stage", y = "Proportion") +
+  theme(legend.position = "top") +
+  theme(legend.title = element_blank())+
+  geom_jitter(
+    data = ncell_dt2,
+    aes(x = pathology_groups, y = pct_sample),
+    size = 0.5, width = 0.1, color = "black") +
+  scale_fill_manual(values = c("lightblue", "orange", "red"))
+
+ggsave(file.path(rdir, "AD progression", "proportion_path_bar.png"), width = 3)
+
+
+ggplot(
+  unique(ncell_region[, .(region, region_median_pct_trend, ast_cluster)])
+) +
+  
+  geom_bar(aes(x = region, y = region_median_pct_trend, group = ast_cluster,
+                fill = ast_cluster), stat = "identity", width = 0.4) +
+  theme(legend.title = element_blank())+
+  geom_jitter(
+    data = ncell_dt2,
+    aes(x = region, y = pct_sample),
+    size = 0.5, width = 0.1, color = "black") +
+  facet_grid(ast_cluster~.) +
+  my_border_theme() +
+  labs(x = "Regions", y = "Proportion") +
+  theme(legend.position = "top") +
+  scale_fill_manual(values = c("lightblue", "orange", "red"))
+ggsave(file.path(rdir, "AD progression", "proportion_region_bar.png"), width = 3)
+```
+

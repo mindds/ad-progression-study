@@ -1,0 +1,257 @@
+---
+title: "AB Plaque load"
+author: "Rojashree Jayakumar"
+date: "2022-10-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load packages
+```{r}
+require(Seurat)
+require(data.table)
+require(tidyverse)
+require(ggpubr)
+require(cowplot)
+```
+
+define specific directories
+```{r}
+#directory to save the plots
+p_dir = file.path("..","Results")
+
+#load some functions - themes
+
+source("Helper_scripts/figure_themes.R")
+```
+
+
+The below chunk is used to get the metadata file from the rPCA integrated Suerat objects
+#run the following chunk on GPU/cluster
+
+```{r}
+# # get individual meta
+# get_ind_meta = function(obj, region){
+#   obj$Region = region
+# 
+#   # add
+#   obj$abeta_3D6 = abeta[, .(ADRC, Region, abeta_3D6)] %>%
+#   unique() %>%
+#   .[data.table(ADRC = obj$Donor.ID %>% as.numeric(),
+#                Region = obj$Region),
+#     on = .(ADRC, Region),
+#     abeta_3D6]
+# 
+#   meta = obj@meta.data
+#   setDT(meta)
+# 
+#   meta = meta[, .(Donor.ID, Region, Ptau.Total.Tau..A.U.., HEK.SEEDING..IFD.,
+#          A, B, C, Braak, Path..Group., TDP.Path, Sex, Age, APOE,
+#          PMI, ADRC.,
+#          abeta_3D6)] %>%
+#   unique()
+# 
+#   # fix Braak 0
+#   meta[, B := as.character(B)]
+#   meta[Braak == 0, B := "0"]
+# 
+#   return(meta)
+# }
+# 
+# 
+# load(file.path(rdata_dir, "annie", "EC_rPCA.Rdata"))
+# EC_meta = get_ind_meta(EC_rPCA, "EC")
+# View(EC_meta[!is.na(abeta_3D6), .(Donor.ID, Region, abeta_3D6)])
+# rm(EC_rPCA)
+# 
+# load(file.path(rdata_dir, "BA20-rPCA-clear-preprocessed.RData"))
+# BA20_meta = get_ind_meta(rPCA, "BA20")
+# View(BA20_meta[!is.na(abeta_3D6), .(Donor.ID, Region, abeta_3D6)])
+# rm(rPCA)
+# 
+# load(file.path(rdata_dir, "annie", "BA46_rPCA.Rdata"))
+# BA46_meta = get_ind_meta(BA46_rPCA, "BA46")
+# View(BA46_meta[!is.na(abeta_3D6), .(Donor.ID, Region, abeta_3D6)])
+# rm(BA46_rPCA)
+# 
+# load(file.path(rdata_dir, "annie", "V2_rPCA.Rdata"))
+# V2_meta = get_ind_meta(V2_rPCA, "V2")
+# View(V2_meta[!is.na(abeta_3D6), .(Donor.ID, Region, abeta_3D6)])
+# rm(V2_rPCA)
+# 
+# load(file.path(rdata_dir, "annie", "V1_rPCA.Rdata"))
+# V1_meta = get_ind_meta(V1_rPCA, "V1")
+# View(V1_meta[!is.na(abeta_3D6), .(Donor.ID, Region, abeta_3D6)])
+# rm(V1_rPCA)
+# 
+# meta = rbind(
+#   EC_meta,
+#   BA20_meta,
+#   BA46_meta,
+#   V2_meta,
+#   V1_meta
+# )
+# 
+# fwrite(meta, file.path(results_dir, "Abbvie_AD_progression_meta.csv"))
+# 
+# meta = fread(file.path(results_dir, "Abbvie_AD_progression_meta.csv"))
+# 
+# meta[A == "unk", Donor.ID] %>% unique()
+# 
+# meta[Donor.ID == "1636", .(Donor.ID, A, B, Braak, C)] %>% unique()
+# meta[Donor.ID == "1636", A := 3]
+# 
+# meta[Donor.ID == "1669", .(Donor.ID, A, B, Braak, C)] %>% unique()
+# meta[Donor.ID == "1669", B := 1]
+# meta[Donor.ID == "1669", A := 0]
+# 
+# meta[Donor.ID == "1703", .(Donor.ID, A, B, Braak, C)] %>% unique()
+# meta[Donor.ID == "1703", B := 0]
+# meta[Donor.ID == "1703", A := 0]
+# 
+# meta[B == "unk", Donor.ID] %>% unique()
+# meta[C == "unk", Donor.ID] %>% unique()
+# 
+# fwrite(meta, file.path(results_dir, "Abbvie_AD_progression_meta.csv"))
+```
+
+
+The following scripts are used to generate figue 1d
+
+```{r}
+# figure theme
+my_theme = function(){
+    theme(
+      axis.line = element_blank(),
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      axis.title.x = element_text(size = 15), 
+      axis.title.y = element_text(size = 15), 
+      strip.background = element_rect(colour="white", fill="white"),
+      strip.text = element_text(size = 12),
+      panel.border = element_rect(colour = "black", fill = NA, size = 1.5),
+      plot.subtitle=element_text(size=15, hjust=0.5, vjust = -0.5)
+    )
+}
+
+pathgrp_colors = c(
+  "Braak 0/I/II" = "#1a9850",
+  "Braak III/IV" = "#74add1",
+  "Braak V" = "#f46d43",
+  "Braak VI" = "#d73027"
+)
+
+
+meta = fread(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Fig1_data/Abbvie_AD_progression_meta.csv"))
+
+meta[, Region := factor(Region, levels = c("EC", "BA20", "BA46", "V2", "V1"))]
+meta[, region := factor(Region, labels = c("EC", "ITG", "PFC", "V2", "V1"))]
+table(meta$Region, meta$region)
+
+# 1: No ADNC, 2: Low-intermediate ADNC, 3: BraakV, 4: BraakVI
+# meta[, path_group := factor(Path..Group., labels = c("No ADNC", "Low-intermediate\nADNC", "BraakV", "BraakVI"))]
+# table(meta$path_group, meta$Path..Group.)
+
+meta$Path_Group<- paste0("Pathology group ", meta$Path..Group., " (Path", meta$Path..Group.,")")
+
+
+meta$`Braak stage` <- ifelse(meta$Path..Group.==1, "Braak 0/I/II",
+        ifelse(meta$Path..Group.==2, "Braak III/IV",
+        ifelse(meta$Path..Group.==3, "Braak V",
+        ifelse(meta$Path..Group.==4, "Braak VI",
+               NA ))))
+
+
+fig1d_ptau = ggplot(meta, aes(x = region, y = Ptau.Total.Tau..A.U..)) +
+  geom_line(aes(group = Donor.ID), alpha = 0.3) +
+  geom_point(aes(color = `Braak stage`)) +
+  facet_grid(. ~ Path..Group.) +
+  scale_color_manual(values = pathgrp_colors) +
+  labs(x = "", y = "pTau/Tau") + 
+  my_theme() + 
+  theme(legend.position = "none") + theme(strip.text = element_blank(), plot.margin=unit(c(-0.2,1,1,1), "cm")) +
+  theme(axis.title.y = element_text(size = 12))
+
+
+
+scaleFUN <- function(x) sprintf("%.1f", x)
+
+fig1d_abeta = ggplot(meta, aes(x = region, y = abeta_3D6)) +
+  geom_line(aes(group = Donor.ID), alpha = 0.3) +
+  geom_point(aes(color = `Braak stage`)) +
+  facet_grid(. ~ Path..Group.) +
+  scale_color_manual(values = pathgrp_colors) +
+  labs(x = "", y = "A\u03b2 plaque load (%)") +
+  my_theme() +
+  theme(legend.position = "none") + theme(strip.text = element_blank()) +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank(), plot.margin=unit(c(1,1,-0.2,1), "cm")) +  scale_y_continuous(labels=scaleFUN) +
+  theme(axis.title.y = element_text(size = 12))
+
+fig1d = ggarrange(fig1d_abeta, fig1d_ptau,
+          nrow = 2, ncol = 1)
+fig1d
+# ggsave(file.path(p_dir, "figs1a.pdf"),
+#        fig1d, height = 6, width = 9)
+ggsave(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Results/Figure_1/fig1d.png"),
+       fig1d, height = 4, width = 8)
+# ggsave(file.path(p_dir, "fig1d.svg"),
+#        fig1d, height = 6, width = 9)
+```
+This chunk is for Fig S2
+
+```{r}
+pathgrp_colors = c(
+  "Braak 0/I/II" = "#457b9d",
+  "Braak III/IV" = "#a9dadc",
+  "Braak V" = "#fcb270",
+  "Braak VI" = "#e63c49"
+)
+
+meta = fread(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Fig1_data/Abbvie_AD_progression_meta.csv"))
+
+meta[, Region := factor(Region, levels = c("EC", "BA20", "BA46", "V2", "V1"))]
+meta[, region := factor(Region, labels = c("EC", "ITG", "PFC", "V2", "V1"))]
+table(meta$Region, meta$region)
+
+# 1: No ADNC, 2: Low-intermediate ADNC, 3: BraakV, 4: BraakVI
+# meta[, path_group := factor(Path..Group., labels = c("No ADNC", "Low-intermediate\nADNC", "BraakV", "BraakVI"))]
+# table(meta$path_group, meta$Path..Group.)
+
+meta$Path_Group<- paste0("Pathology group ", meta$Path..Group., " (Path", meta$Path..Group.,")")
+
+
+meta$`Braak stage` <- ifelse(meta$Path..Group.==1, "Braak 0/I/II",
+        ifelse(meta$Path..Group.==2, "Braak III/IV",
+        ifelse(meta$Path..Group.==3, "Braak V",
+        ifelse(meta$Path..Group.==4, "Braak VI",
+               NA ))))
+
+fig1d_ptau_2 = ggplot(meta, aes(x = Path..Group., y = Ptau.Total.Tau..A.U..)) +
+  geom_line(aes(group = Donor.ID), alpha = 0.3) +
+  geom_boxplot(aes(group = Path..Group.)) +
+  geom_point(aes(color = `Braak stage`)) +
+  facet_grid(. ~ region) +
+  scale_color_manual(values = pathgrp_colors) +
+  labs(x = "Pathologay Stage", y = "pTau/Tau") +
+  my_theme() +
+  theme(legend.position = "none")
+fig1d_abeta_2 = ggplot(meta, aes(x = Path..Group., y = abeta_3D6)) +
+  geom_boxplot(aes(group = Path..Group.)) +
+  geom_point(aes(color = `Braak stage`)) +
+  facet_grid(. ~ region) +
+  scale_color_manual(values = pathgrp_colors) +
+  labs(x = "", y = "A\u03b2 plaque load (%)") +
+  my_theme() +
+  theme(legend.position = "none")
+
+fig1d_2 = ggarrange(fig1d_abeta_2, fig1d_ptau_2,
+          nrow = 2, ncol = 1)
+# ggsave(file.path(p_dir, "Figure_1", "fig1d_facet.by.brain.regions.png"),
+#        fig1d_2, height = 6, width = 9)
+
+
+```
