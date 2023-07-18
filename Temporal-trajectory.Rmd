@@ -1,7 +1,5 @@
 ---
-title: "Figure 4"
-author: "Rojashree Jayakumar"
-date: "2022-09-12"
+title: "Temporal Trajectory"
 output: html_document
 ---
 
@@ -16,7 +14,7 @@ require(ggpubr)
 # directories 
 data_dir = file.path("..", "Data")
 rdir = file.path("..", "Results")
-source("../../Scripts/Helper_scripts/figure_themes.R")
+source("Helper_scripts/figure_themes.R")
 
 ```
 
@@ -70,18 +68,16 @@ setDT(p4vsp3, keep.rownames = TRUE)
 setDT(p3vsp2, keep.rownames = TRUE)
 setDT(p2vsp1, keep.rownames = TRUE)
 
-#fwrite (P4vsP3,"/autofs/space/mindds_001/projects/AbbvieSnRNASeq/results/Traj_endothelial/P4vsP3.csv" )
-#fwrite (P3vsP2,"/autofs/space/mindds_001/projects/AbbvieSnRNASeq/results/Traj_endothelial/P3vsP2.csv" )
-#fwrite (P2vsP1,"/autofs/space/mindds_001/projects/AbbvieSnRNASeq/results/Traj_endothelial/P2vsP1.csv" )
+fwrite (P4vsP3,"/autofs/space/mindds_001/projects/AbbvieSnRNASeq/results/Traj_endothelial/P4vsP3.csv" )
+fwrite (P3vsP2,"/autofs/space/mindds_001/projects/AbbvieSnRNASeq/results/Traj_endothelial/P3vsP2.csv" )
+fwrite (P2vsP1,"/autofs/space/mindds_001/projects/AbbvieSnRNASeq/results/Traj_endothelial/P2vsP1.csv" )
 ```
 
 
 
 ```{r}
-load(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Traj_endothelial/end_sample.level.average.expression_filtered.Rdata"))
+load(file.path("../Data/Fig4_data/ast_sample.level.average.expression_filtered.Rdata"))
 
-#check if same meta can be used
-getwd()
 ind_meta = fread(file.path("..", "Data","Fig1_data", "Abbvie_AD_progression_meta.csv")) 
 ind_meta = ind_meta[, c("Donor.ID", "Path..Group.")] %>%
   unique()
@@ -91,12 +87,8 @@ ave.exp_dt[ind_meta, on = .(Donor.ID), path_group := i.Path..Group.]
 ave.exp_dt[, zscore_gene := scale(ave.exp), by = .(gene)]
 ave.exp_dt_path = ave.exp_dt[, .(ave_zscore_path = mean(zscore_gene)), by = .(gene, path_group)]
 
-#ggplot(ave.exp_dt_path, aes(x = path_group, y = ave_zscore_path)) +
-#  geom_point()
-
-
+# Clustering 
 gt_TT_clustering = function(dt, k = 6, seed = 9){
-  # dt = ave.exp_dt_hvgs[path_group %in% sel_path_group, ]
   mtx = dt[, .(gene, ave_zscore_path, path_group)] %>% unique()
   mtx = dcast(mtx, gene ~ path_group, value.var = "ave_zscore_path")
   mtx = mtx %>% as.data.frame() %>%
@@ -125,10 +117,13 @@ gt_TT_clustering = function(dt, k = 6, seed = 9){
   return(list(dt = dt, clustLab = clustLab, mtx = mtx, p = p))
 }
 
-# select only the genes that are significant - read my code files, check path
-p4vsp3 = fread(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Traj_endothelial/P4vsP3.csv"))
-p3vsp2 = fread(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Traj_endothelial/P3vsP2.csv"))
-p2vsp1 = fread(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Traj_endothelial/P2vsP1.csv"))
+# select only the genes that are significant 
+# The following files have the differential expressed genes between two adjacent pathology groups.
+
+p4vsp3 = fread(file.path("../Data/Fig4_data/P4vsP3.csv"))
+p3vsp2 = fread(file.path("../Data/Fig4_data/P3vsP2.csv"))
+p2vsp1 = fread(file.path("../Data/Fig4_data/P2vsP1.csv"))
+
 get_sig_genes = function(dt){
   return(dt[p_val_adj < 0.05, rn])
 }
@@ -160,10 +155,6 @@ TT_cluster = gt_TT_clustering(
 TT_cluster$p
 TT_cluster_gene_clusters = TT_cluster$dt[, .(gene, cluster)] %>% unique()
 
-#fwrite(TT_cluster_gene_clusters, )
-#save(TT_cluster, file = file.path(rdir, "AD progression", "TT_cluster.RData"))
-#fwrite(TT_cluster_gene_clusters, file = file.path(rdir, "AD progression", "pathall_TT.trends_clusters_0802.csv"))
-# fwrite(TT_cluster_gene_clusters, file = file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Traj_endothelial/pathall_TT.trends_allinfo_endo.csv"))
 
 ```
 
@@ -286,23 +277,16 @@ colnames(allcluster)[9] <- "-log10FDR"
 
 #pathways, color, wide, space, dodge, times, hjust
 bar_1 = barplot(allcluster[geneset == 1], "#e9a3c9", 0.8, 0.5, 0.02, 5, 1)
-ggsave(file.path(rdir,  "TP_barplots", "GS1.png"), width = 16, height = 8)
 bar_2 = barplot(allcluster[geneset == 2], "#91bfdb", 0.8, 0.5, 0.02, 4, 1)
-ggsave(file.path(rdir,  "TP_barplots", "GS2.png"), width = 16, height = 8)
 bar_3 = barplot(allcluster[geneset == 3], "#FBA949", 0.8, 0.5, 0.02, 6, 1)
-ggsave(file.path(rdir,  "TP_barplots", "GS3.png"), width = 16, height = 8)
 bar_4 = barplot(allcluster[geneset == 4], "#8BD448", 0.8, 0.5, 0.02, 4, 1)
-ggsave(file.path(rdir,  "TP_barplots", "GS4.png"), width = 16, height = 8)
 bar_5 = barplot(allcluster[geneset == 5], "#FAE442", 0.8, 0.5, 0.02, 4, 1)
-ggsave(file.path(rdir,  "TP_barplots", "GS5.png"), width = 16, height = 8)
 bar_6 = barplot(allcluster[geneset == 6], "#9C4F96", 0.8, 0.5, 0.02, 5, 1)
-ggsave(file.path(rdir,  "TP_barplots", "GS6.png"), width = 16, height = 8)
-
 bars = ggarrange(bar_1, bar_2, bar_3, bar_4, bar_5, bar_6, 
           ncol = 1, align = "hv")+ theme(axis.title = element_text(size = 20, color = "black"))
 
-ggsave(bars, filename = file.path(rdir,  "TP_barplots", "all_bars_TP.png"), width = 15, height = 30, units = "in")
+ggsave(bars, filename = file.path(rdir,  "Fig4", "all_bars_TP.png"), width = 15, height = 30, units = "in")
 
-getwd()
+
 ```
 
