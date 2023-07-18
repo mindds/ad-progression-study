@@ -28,20 +28,20 @@ p_dir = file.path("..", "Results")
 Run differential analysis on GPU/cluster on the rPCA filtered astrocytes.
 
 ```{r}
-
+load("../Data/ast_ctrl_rPCA")
 # @ ast_ctrl_rPCA - Suerat object which has the astrocyte filtered data
 region_de = FindAllMarkers(ast_ctrl_rPCA,
                     min.pct = 0, logfc.threshold = 0, 
                     min.cells.feature = 0, return.thresh = 1, 
                     test.use = "LR", latent.vars = "Donor.ID")
 region_de = region_de %>% rownames_to_column("gene_name") %>% setDT()
-fwrite(region_de, file.path(rdir, "ast_ctrl_de_01042022.csv"))
+fwrite(region_de, file.path("../Data/ast_ctrl_de_01042022.csv"))
 ```
 
 
 ```{r}
 #load the file
-path1_de = fread(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Data/ast_ctrl_de_01042022.csv"))
+path1_de = fread(file.path("../Data/Fig2_data/ast_ctrl_de_01042022.csv"))
 ```
 
 #Venn diagrams 
@@ -109,25 +109,24 @@ fig2a_down = ggVennDiagram(
 
 ggarrange (fig2a_up, fig2a_down)
 
-#ggsave (filename = file.path(p_dir,"Figure2a.png"), height = 3, width = 6)
+ggsave (filename = file.path(p_dir,"Fig2/Figure2a.png"), height = 3, width = 6)
 ```
 
 #Heatmap 
 
 corresponds to Fig2B
 
-#Question was this filtered manually? 
 #are the Differentially expressed genes (DEGs) that pass the average fold-change (FC) cut off (FC > 1.2 for up-regulated genes and FC < 0.8 for the down-regulated genes), had a false discovery rate (FDR) < 0.05 and were expressed in greater than 50% of the cells in the given brain region are reported?
 
 ```{r}
 require(openxlsx)
 path1_region_up_gs = read.xlsx(
-  file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Data/ast_ctrl_region_de_summary_with.all.regions_asp_filtered.xlsx"),
+  file.path("../Data/Fig2_data/ast_ctrl_region_de_summary_with.all.regions_asp_filtered.xlsx"),
   sheet = "up genes") %>%
   setDT() %>%
   .[, .(cluster, gene)]
 path1_region_down_gs = read.xlsx(
-  file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Data/ast_ctrl_region_de_summary_with.all.regions_asp_filtered.xlsx"),
+  file.path("../Data/Fig2_data/ast_ctrl_region_de_summary_with.all.regions_asp_filtered.xlsx"),
   sheet = "down genes") %>%
   setDT() %>%
   .[, .(cluster, gene)]
@@ -216,7 +215,7 @@ fig2b_up = plot_fig2b(
 )
 
 fig2b_up
-png(file.path(p_dir, "fig2b_up_heatmap.png"),
+png(file.path(p_dir, "Fig2/fig2b_up_heatmap.png"),
     width = 300, height = 1300)
 draw(fig2b_up)
 dev.off()
@@ -295,7 +294,7 @@ fig2b_down = plot_fig2b(
 )
 
 #p <- fig2b_up + fig2b_down
-png(file.path(p_dir, "fig2b_down_heatmap.png"),
+png(file.path(p_dir, "Fig2/fig2b_down_heatmap.png"),
     width = 300, height = 1300)
 draw(fig2b_down)
 dev.off()
@@ -514,7 +513,7 @@ p_volcano = function(
     ggthemes::theme_few()
 }
 
-dt = fread(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Fig2_data/mast_allregion_ast_sampled_path1_ptau_06022022_modeldt_ctrl_f12.csv"))
+dt = fread(file.path("../Data/Fig2_data/mast_allregion_ast_sampled_path1_ptau_06022022_modeldt_ctrl_f12.csv"))
 
 library(ggrepel)
 setnames(dt, "Pr(>Chisq)", "p")
@@ -531,7 +530,7 @@ fig2d_P1 = p_volcano(
 
 
 
-# ggsave(fig2d_P1,filename = "~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Results/Figure_2/fig2d.png", height = 4)
+ggsave(fig2d_P1,filename = "../Results/Fig2/fig2d.png", height = 4)
 ```
 
 Venn diagram of EC high genes and Pathology group 1 pTau/Tau positive correlated genes and Venn diagram of EC low genes and Pathology group 1 pTau/Tau negative correlated genes 
@@ -539,7 +538,7 @@ Venn diagram of EC high genes and Pathology group 1 pTau/Tau positive correlated
 Fig 2e venn diagram
 
 ```{r}
-path1_de = fread(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Fig2_data/ast_ctrl_de_01042022.csv"))
+path1_de = fread(file.path("../Data/Fig2_data/ast_ctrl_de_01042022.csv"))
 # load pTau genes
 # venn diagram
 #' @param a [vector] a vector of category 1
@@ -581,7 +580,7 @@ ec_low_gs = setdiff(
 
 
 # load 
-dt_f = file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Fig2_data/mast_allregion_ast_sampled_path1_ptau_06022022_modeldt_ctrl_f12.csv")
+dt_f = file.path("../Data/Fig2_data/mast_allregion_ast_sampled_path1_ptau_06022022_modeldt_ctrl_f12.csv")
 path1_ptau_dt = fread(dt_f)
 path1_ptau_dt[coef > 0 & adj.pvalue < 0.05, direction := "pos"]
 path1_ptau_dt[coef < 0 & adj.pvalue < 0.05, direction := "neg"]
@@ -590,7 +589,7 @@ path1_ptau_dt[is.na(direction), direction := "ns"]
 
 # venn of EC high & pTau/Tau pos corr genes
 png(
-  file.path(p_dir, "fig2e_venn_path1_poscorr&echigh_adjp_0614022.png"),
+  file.path(p_dir, "Fig2/fig2e_venn_path1_poscorr&echigh_adjp_0614022.png"),
   width = 300,
   height = 300
 )
@@ -602,7 +601,7 @@ figure_2ea<- do_fig2e(
   colors = c("#EE9595", "#FFCDA3")
 )
 
-ggsave ("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Results/Figure_2/Figure_2ea.png")
+ggsave ("../Results/Fig2/Figure_2ea.png")
 
 figure_2eb<- do_fig2e(
   a = path1_ptau_dt[direction == "neg", primerid],
@@ -612,7 +611,7 @@ figure_2eb<- do_fig2e(
   colors = c("#90E0EF", "#C1F4C5")
 )
 
-ggsave ("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Results/Figure_2/Figure_2eb.png")
+ggsave ("../Results/Fig2/Figure_2eb.png")
 
 ```
 
