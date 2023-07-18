@@ -5,7 +5,7 @@ date: "2023-07-17"
 output: html_document
 ---
 
-Run in GPU/cluster 
+Run on GPU cluster 
 
 Integrate data: There are 5 brain regions and 32 donors (5x32 samples)
 ```{r}
