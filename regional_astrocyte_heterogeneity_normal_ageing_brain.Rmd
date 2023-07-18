@@ -1,8 +1,11 @@
 ---
-title: "Differential expression"
-author: "Rojashree Jayakumar"
-date: "2022-11-02"
-output: html_document
+title: "Regional astrocyte heterogeneity"
+description: |
+  The script performs differential expression of the astrocyte trascriptome and is used to generate plots that show the regionsl heterogeneity in astrocyte transcriptome.
+date: "`r Sys.Date()`"
+output: 
+  distill::distill_article
+  toc = true
 ---
 
 ```{r setup, include=FALSE}

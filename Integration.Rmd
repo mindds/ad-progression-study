@@ -1,15 +1,17 @@
 ---
 title: "Integration"
-author: "Rojashree Jayakumar"
-date: "2023-07-17"
-output: html_document
+description: |
+  The code integrates single cell RNA sequencing data from 5 brain regios of 32 donors. The following code should be run in a GPU cluster.
+date: "`r Sys.Date()`"
+output: 
+  distill::distill_article
+  toc: true
 ---
 
 Run on GPU cluster 
 
 Integrate data: There are 5 brain regions and 32 donors (5x32 samples)
 ```{r}
-
 #specify paths
 data_path <- "data/"
 scripts_path <- "scripts/"
@@ -24,10 +26,10 @@ brain_regions <- c("BA20", "BA46", "EC", "V1", "V2")
 
 # Use 4 cores
 ncore <- 4
+
 # Load packages
 library(Seurat)
 library(data.table)
-library(SeuratWrappers)
 library(tidyverse)
 library(rstatix)
 library(ggpubr)

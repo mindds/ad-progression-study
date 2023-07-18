@@ -1,9 +1,12 @@
 ---
-title: 'Step 2: Assign Cell Types'
-output: html_document
+title: "Annotation of cell types"
+description: |
+  The script is used to annotate the integrated dataset. The script were run on a GPU cluster.
+date: "`r Sys.Date()`"
+output: 
+  distill::distill_article
+  toc: true
 ---
-
-Run on GPU cluster
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -59,11 +62,12 @@ library(doParallel)
 library(foreach)
 library(broom)
 theme_set(theme_cowplot())
+
+source("Helper_scripts/subcluster_functions_AGB.R")
+source("Helper_scripts/plot_functions_AGB.R")
 ```
 
-
 Use cluster resolution 0.1 by default to identify endothelial cells
-
 ```{r}
 cluster_res <- 0.1
 ```
@@ -78,7 +82,6 @@ for (brain_region in c("BA20", "BA46", "EC", "V1", "V2")) {
   rm(tmp)
 }
 ```
-
 
 Create dimplot for each brain region at coarse resolution 0.1
 ```{r}
@@ -95,7 +98,6 @@ for (brain_region in brain_regions) {
          width=6, height=4, units="in", dpi=300)
 }
 ```
-
 
 Visualize cell marker heatmaps at res=0.1 to identify clusters:
 ```{r}
@@ -128,3 +130,53 @@ for (brain_region in c("BA20", "BA46", "EC", "V1", "V2")) {
   
 }
 ```
+
+The following subclusters aren't immediately identifiable as a particular cell type:
+- BA20: 6, 7
+- BA46: 5, 6, 8, 12, 14
+- EC: 3, 11, 14
+- V1: 8, 9, 11, 13 
+- V2: 5, 8, 11
+
+Based on these cell type marker heatmaps, each subcluster was manuallu with a corresponding cell type. The cell type annotations can be found here:
+
+"../data/cluster_cell_type_identification.csv"
+
+```{r}
+cluster_ids <- read.csv(paste0(annie_path, "cell_type_markers/cluster_cell_type_identification.csv")) %>%
+  mutate(Cluster = as.character(Cluster)) %>%
+  dplyr::rename("Annie_Cell_Type" = "Cell_Type")
+```
+
+
+Link cells with Annie's manual annotation:
+```{r}
+for (brain_region in brain_regions) {
+  assign("reg_seurat", get(paste0(brain_region, "_rPCA")))
+
+  if ("celltype" %in% colnames(reg_seurat@meta.data)) {
+    reg_seurat$Astrid_Cell_Type <- reg_seurat$celltype
+    reg_seurat$celltype <- NULL
+  } else if ("ctype" %in% colnames(reg_seurat@meta.data)) {
+    reg_seurat$Astrid_Cell_Type <- reg_seurat$ctype
+    reg_seurat$ctype <- NULL
+  }
+
+  this_region_cluster_IDs <- cluster_ids %>%
+    filter(Brain_Region==brain_region) %>%
+    dplyr::rename("integrated_snn_res.0.1"="Cluster") %>%
+    dplyr::select(-Brain_Region)
+
+  seurat_obj_cluster_IDs <- reg_seurat@meta.data %>%
+    dplyr::select(integrated_snn_res.0.1) %>%
+    left_join(., this_region_cluster_IDs)
+
+  reg_seurat$Annie_Cell_Type <- seurat_obj_cluster_IDs$Annie_Cell_Type
+  assign(paste0(brain_region, "_rPCA"), reg_seurat)
+  
+
+  save(list=ls(pattern=(paste0(brain_region, "_rPCA"))),
+       file=paste0(rdata_path_out, brain_region, "_rPCA.Rdata"))
+}
+```
+

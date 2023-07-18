@@ -1,5 +1,5 @@
 ---
-title: "Fig 3 and 4"
+title: "Spatial Trajectories"
 author: "Rojashree Jayakumar"
 date: "2022-09-12"
 output: html_document
