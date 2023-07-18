@@ -1,7 +1,5 @@
 ---
-title: "Fig 3 and 4"
-author: "Rojashree Jayakumar"
-date: "2022-09-12"
+title: "Spatial Trajectories"
 output: html_document
 ---
 
@@ -18,13 +16,13 @@ library (Seurat)
 data_dir = file.path("..", "Data")
 rdir = file.path("..", "Results")
 
-source("../../Scripts/Helper_scripts/figure_themes.R")
+source("Helper_scripts/figure_themes.R")
 ```
 
 #run on GPU/cluster
 ```{r}
 #load the merged data of all brain regions which has the clusters
-load("/space/mindds/1/projects/AbbvieSnRNASeq/data/Rdata/ast_all.brain.regions_cluster.group_removed.Rdata")
+load("/space/mindds_001/projects/AbbvieSnRNASeq/data/Rdata/ast_all.brain.regions_cluster.group_removed.Rdata")
 
 #perform differential expression between the regions
 
@@ -83,12 +81,6 @@ ggplot(
 # z-scores of genes across brain regions within donor
 ```{r}
 ave.exp_dt[, zscore_donor := scale(ave.exp*100), by = .(Donor.ID, gene)]
-
-# multiplied by 100 to get reads/transcripts per million
-# double-check
-# check_dt = ave.exp_dt[gene == "GFAP" & Donor.ID == "2122", ]
-# scale(check_dt$ave.exp * 100)
-
 ```
 
 
@@ -151,65 +143,13 @@ pathall_clust = path_group_clustering(
 ```
 
 
-``` {r}
 
-# pathall_clust$p
-# pathall_gene_clusters = pathall_clust$dt[, .(gene, cluster)] %>% unique()
-#   
-#   
-#   
-# ave.exp_dt_hvgs = fread(file.path(data_dir, "AD progression","union_sig_genes.txt"))
+Fig 3a, b - run locally
 
-# ave.exp_dt_hvgs = ave.exp_dt[gene %in% ave.exp_dt_hvgs$Gene, ]
-# 
-# path_group_clustering = function(ave.exp_dt_hvgs, sel_path_group, k = 5, seed = 9){
-#   dt = ave.exp_dt_hvgs[path_group %in% sel_path_group, ]
-#   dt[, ave_zscore_donor := mean(zscore_donor), by = .(gene, Region)]
-#   mtx = dt[, .(gene, ave_zscore_donor, Region)] %>% unique()
-#   mtx = dcast(mtx, gene ~ Region, value.var = "ave_zscore_donor")
-#   mtx = mtx %>% as.data.frame() %>%
-#     column_to_rownames("gene") %>% 
-#     as.matrix()
-#   
-#   library(SNFtool)
-#   set.seed(seed)
-# 
-#   diss_mtx = dist(mtx)
-#   ## compute similarity matrix as done in paper
-#   sim_mtx = 1-as.matrix(diss_mtx)/max(diss_mtx)
-#  
-#   # uses code from the Similarity Network Fusion Paper
-#   clust = SNFtool::spectralClustering(sim_mtx, K = k) # where kVal is the number of clusters you would like to partition
-#   clustLab = as.factor(clust)
-#   annot = data.table(gene = rownames(mtx), cluster = clustLab)
-#   dt[annot, on = .(gene), cluster := i.cluster]
-#   
-#   p = ComplexHeatmap::Heatmap(
-#     mtx, 
-#     show_row_names = F,
-#     cluster_columns = F,
-#     row_split = clustLab
-#   )
-#   return(list(dt = dt, clustLab = clustLab, mtx = mtx, p = p))
-# }
-# 
-# 
-# pathall_clust = path_group_clustering(
-#   ave.exp_dt_hvgs = ave.exp_dt_hvgs,
-#   sel_path_group = c(1,2,3,4),
-#   k = 6
-# )
-# 
-# pathall_clust$p
-# pathall_gene_clusters = pathall_clust$dt[, .(gene, cluster)] %>% unique()
-```
 
-Fig 3a, b
-Can run locally
 
 ```{r}
-# load(file = file.path(rdir, "AD progression", "pathall_clust.RData"))
-
+load(file = file.path(data_dir, "Fig3_data", "pathall_clust.RData"))
 
 gene_trends = pathall_clust$dt[, .(gene, ave_zscore_donor, Region, cluster)] %>% unique()
 gene_trends = gene_trends[!(grepl("MT-", gene)),]
@@ -263,7 +203,7 @@ p_line = ggplot(
     "#FAE442", "#9C4F96"))
 
 p_line
-ggsave(file.path(rdir, "AD progression", "fig3a-gene-trajectories.png"), width = 5, height = 6)
+ggsave(file.path(rdir, "Fig3", "fig3a-gene-trajectories.png"), width = 5, height = 6)
 
 # add color bar
 figure_annot = function(rename_dt, annot_col, annot_title, no_strip_text = T){
@@ -312,9 +252,12 @@ fwrite(trends_gene, "spatial_gene_sets.csv")
 
 ```
 
-# Pathway analysis: Pathways analysis was done on gsea and the excel files were generated with overalapping genes to choose the pathwyas for plotting - performed on the file  ~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Scripts/SP_pathways_barplots_SD.Rmd
+# Pathway analysis: 
 
-Fig 3b
+Pathways analysis was done on gsea web tool https://www.gsea-msigdb.org/gsea/msigdb/annotate.jsp  and the .csv files were generated. Selected pathways were plotted in Fig 3b
+
+
+Functional characterization of each spatial trajectory gene set via pathway analysis
 
 ```{r}
 barplot<- function(pathways, 
@@ -371,7 +314,7 @@ barplot<- function(pathways,
 }
 
 
-allcluster <- fread("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Results/AD progression/Spatial_(Region)_trajectory_Pathways_analysis/mapped_genes/allclusters_SP_asp.csv")
+allcluster <- fread("../Data/Fig3_data/allclusters_SP_asp.csv")
 
 
 allcluster[, new_name := paste0("gene set #", geneset)]
@@ -381,24 +324,16 @@ allcluster[order(`-log10FDR`), ]
 
 #pathways, color, wide, space, dodge, times, hjust
 bar_1 = barplot(allcluster[geneset == 1], "#e9a3c9", 0.8, 0.5, 0.08, 6, 1)
-bar_1
-ggsave(file.path(rdir,  "SP_barplots", "GS1.png"), width = 16, height = 8)
 bar_2 = barplot(allcluster[geneset == 2], "#91bfdb", 0.8, 0.5, 0.1, 5, 1)
-ggsave(file.path(rdir,  "SP_barplots", "GS2.png"), width = 16, height = 8)
 bar_3 = barplot(allcluster[geneset == 3], "#FBA949", 0.8, 0.5, 0.1, 5, 1)
-ggsave(file.path(rdir,  "SP_barplots", "GS3.png"), width = 16, height = 8)
 bar_4 = barplot(allcluster[geneset == 4], "#8BD448", 0.8, 0.5, 0.205, 6, 1)
-ggsave(file.path(rdir,  "SP_barplots", "GS4.png"), width = 16, height = 8)
 bar_5 = barplot(allcluster[geneset == 5], "#FAE442", 0.8, 0.5, 0.02, 4, 1)
-bar_5
-ggsave(file.path(rdir,  "SP_barplots", "GS5.png"), width = 16, height = 8)
 bar_6 = barplot(allcluster[geneset == 6], "#9C4F96", 0.8, 0.5, 0.1, 5, 1)
-ggsave(file.path(rdir,  "SP_barplots", "GS6.png"), width = 16, height = 8)
 
 bars = ggarrange(bar_1, bar_2, bar_3, bar_4, bar_5, bar_6, 
           ncol = 1, align = "hv")
 bars
-ggsave(bars, filename = file.path(rdir,  "SP_barplots", "all_bars_SP.png"), width = 15, height = 30)
+ggsave(bars, filename = file.path(rdir,  "Fig3", "all_bars_SP.png"), width = 15, height = 30)
 
 ```
 
