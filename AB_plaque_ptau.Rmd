@@ -1,7 +1,5 @@
 ---
 title: "AB Plaque load"
-author: "Rojashree Jayakumar"
-date: "2022-10-31"
 output: html_document
 ---
 
@@ -18,20 +16,20 @@ require(ggpubr)
 require(cowplot)
 ```
 
-define specific directories
 ```{r}
-#directory to save the plots
-p_dir = file.path("..","Results")
-
 #load some functions - themes
-
 source("Helper_scripts/figure_themes.R")
 ```
 
 
+<<<<<<< HEAD
 The below chunk is used to get the metadata file from the rPCA integrated Suerat objects
 
 Run the following chunk on GPU/cluster
+=======
+Process metadata from the rPCA integrated Suerat objects.
+#run the following chunk on GPU/cluster
+>>>>>>> rojashree
 
 ```{r}
 # get individual meta
@@ -120,7 +118,7 @@ fwrite(meta, file.path(results_dir, "Abbvie_AD_progression_meta.csv"))
 ```
 
 
-The following scripts are used to generate figue 1d
+Figure 1d - AB plaque load and ptau/Tau ratio by region
 
 ```{r}
 # figure theme
@@ -147,15 +145,11 @@ pathgrp_colors = c(
 )
 
 
-meta = fread(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Fig1_data/Abbvie_AD_progression_meta.csv"))
+meta = fread(file.path("../Data/Fig1_data/Abbvie_AD_progression_meta.csv"))
 
 meta[, Region := factor(Region, levels = c("EC", "BA20", "BA46", "V2", "V1"))]
 meta[, region := factor(Region, labels = c("EC", "ITG", "PFC", "V2", "V1"))]
 table(meta$Region, meta$region)
-
-# 1: No ADNC, 2: Low-intermediate ADNC, 3: BraakV, 4: BraakVI
-# meta[, path_group := factor(Path..Group., labels = c("No ADNC", "Low-intermediate\nADNC", "BraakV", "BraakVI"))]
-# table(meta$path_group, meta$Path..Group.)
 
 meta$Path_Group<- paste0("Pathology group ", meta$Path..Group., " (Path", meta$Path..Group.,")")
 
@@ -197,12 +191,12 @@ fig1d = ggarrange(fig1d_abeta, fig1d_ptau,
 fig1d
 # ggsave(file.path(p_dir, "figs1a.pdf"),
 #        fig1d, height = 6, width = 9)
-ggsave(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Results/Figure_1/fig1d.png"),
+ggsave(file.path("../Results/Figure_1/fig1d.png"),
        fig1d, height = 4, width = 8)
-# ggsave(file.path(p_dir, "fig1d.svg"),
-#        fig1d, height = 6, width = 9)
 ```
-This chunk is for Fig S2
+
+
+Supplementary figure -  AB plaque load and ptau/Tau ratio by pathology stage
 
 ```{r}
 pathgrp_colors = c(
@@ -212,7 +206,7 @@ pathgrp_colors = c(
   "Braak VI" = "#e63c49"
 )
 
-meta = fread(file.path("~/Dropbox (Partners HealthCare)/Abbvie collaboration/Astrocytes scripts/Data/Fig1_data/Abbvie_AD_progression_meta.csv"))
+meta = fread(file.path("../Data/Fig1_data/Abbvie_AD_progression_meta.csv"))
 
 meta[, Region := factor(Region, levels = c("EC", "BA20", "BA46", "V2", "V1"))]
 meta[, region := factor(Region, labels = c("EC", "ITG", "PFC", "V2", "V1"))]
@@ -251,8 +245,8 @@ fig1d_abeta_2 = ggplot(meta, aes(x = Path..Group., y = abeta_3D6)) +
 
 fig1d_2 = ggarrange(fig1d_abeta_2, fig1d_ptau_2,
           nrow = 2, ncol = 1)
-# ggsave(file.path(p_dir, "Figure_1", "fig1d_facet.by.brain.regions.png"),
-#        fig1d_2, height = 6, width = 9)
+ggsave(file.path("../Results/Supplementary_figures/fig1d_facet.by.brain.regions.png"),
+        fig1d_2, height = 6, width = 9)
 
 
 ```
