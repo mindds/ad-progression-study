@@ -11,5 +11,5 @@ Cell_type_annotation.Rmd script script was used to identify the cell types. Cell
 The regional_astrocyte_heterogeneity_normal_ageing_brain.Rmd script performs differential expression on rPCA integrated astrocytes data (input is a Seurat object). The script also has the code for visualizations of Figure 2 in the manuscript. 
 
 ## Spatio-temporal progression of Alzheimer's disease. 
-The Spatial trajectories.Rmd contains the scripts that perform clustering of the 504 DEGs between any two “adjacent” nodes of the AD network from EC to V1. It also has the code to generate Fig 3 in the manuscript.
+The Spatial trajectories.Rmd contains the scripts that perform clustering of the 504 DEGs between any two “adjacent” nodes of the AD network from EC to V1. It also has the code to generate Fig 3 in the manuscript
 
