@@ -1,0 +1,281 @@
+---
+title: "Marker genes and Proportion"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE, 
+  message = FALSE
+) 
+```
+
+Load required packages
+```{r}
+require(Seurat)
+require(data.table)
+require(tidyverse)
+require(circlize)
+require(ComplexHeatmap)
+require(ggpubr)
+source("Helper_scripts/figure_themes.R")
+```
+
+Figure 5b: 
+Bubble plots of the expression z-scores of selected marker genes
+```{r}
+load("Example_Data/merged.rdata")
+
+astHR = merged[, merged$cluster_group %in% c("astH1", "astH2", "astR1", "astR2")]
+
+avge = AverageExpression(merged, assays = "RNA", features = rownames(merged)) %>%
+  .[["RNA"]]
+avge = avge %>% 
+  as.data.frame() %>%
+  rownames_to_column("gene_name") %>%
+  as.data.table() %>%
+  melt(id.vars = c("gene_name"), variable.name = "clusters", 
+       value.name = "clusters_ave_exp") %>%
+  .[, ave_exp_z := scale(clusters_ave_exp), by = .(gene_name)]
+avge = avge %>% 
+  dcast(gene_name ~ clusters, value.var = "ave_exp_z")
+
+
+zcut = 0
+
+pct = 0.5
+
+astH1 = fread(file.path("Example_Data/astH1_de.csv"))
+astH2 = fread(file.path("Example_Data/astH2_de.csv"))
+astH1vsH2 = fread(file.path("Example_Data/astH1vsastH2_de.csv"))
+astR1 = fread(file.path("Example_Data/astR1_de.csv"))
+astR2 = fread(file.path("Example_Data/astR2_de.csv"))
+astR1vsR2 = fread(file.path("Example_Data/astR1vsastR2_de.csv"))
+
+# H1,H2 common markers
+astH1H2_c = Reduce(intersect,
+                   list(
+                     astH1[pct.1 > pct, gene_name],
+                     astH2[pct.1 > pct, gene_name],
+                     avge[astH1 > zcut & astH2 > zcut & astR1 < -zcut & astR2 < -zcut, gene_name]
+                   )
+)
+
+# R1,R2 common markers
+astR1R2_c = Reduce(intersect,
+                   list(
+                     astR1[pct.1 > pct, gene_name],
+                     astR2[pct.1 > pct, gene_name],
+                     avge[astR1 > zcut & astR2 > zcut & astH1 < -zcut & astH2 < -zcut, gene_name]
+                   )
+)
+
+# H1 markers
+astH1_gs = Reduce(intersect,
+                  list(
+                    astH1[pct.1 > pct, gene_name],
+                    avge[astH1 > zcut & astH2 < 0 & astR1 < 0 & astR2 < 0, gene_name]
+                  )
+)
+
+# H2 genes
+astH2_gs = Reduce(intersect,
+                  list(
+                    astH2[pct.1 > pct, gene_name],
+                    avge[astH2 > zcut & astH1 < 0 & astR1 < 0 & astR2 < 0, gene_name]
+                  )
+)
+
+# R1 markers
+astR1_gs = Reduce(intersect,
+                  list(
+                    astR1[pct.1 > pct, gene_name],
+                    avge[astR1 > zcut & astH2 < 0 & astH1 < 0 & astR2 < 0, gene_name]
+                  )
+)
+
+# R2 genes
+astR2_gs = Reduce(intersect,
+                  list(
+                    astR2[pct.1 > pct, gene_name],
+                    avge[astR2 > zcut & astH1 < 0 & astR1 < 0 & astH2 < 0, gene_name]
+                  )
+)
+
+
+fig_dt = rbind(
+  data.table(
+    gene = astH1_gs,
+    group = "astH1"
+  ),
+  data.table(
+    gene = astH2_gs,
+    group = "astH2"
+  ),
+  data.table(
+    gene = astR1_gs,
+    group = "astR1"
+  ),
+  data.table(
+    gene = astR2_gs,
+    group = "astR2"
+  ),
+  data.table(
+    gene = astH1H2_c,
+    group = "astH1/H2 common"
+  ),
+  data.table(
+    gene = astR1R2_c,
+    group = "astR1/R2 common"
+  )
+)
+fig_dt[, group := factor(group, levels = c("astH1", "astH2", "astH1/H2 common",
+                                             "astR1", "astR2", "astR1/R2 common"))]
+
+# alternatively load the genes from here
+fig_dt = fread("Example_Data/genes_fig5c.csv")
+
+do_dotplot = function(obj, features_dt, sel_group = NULL, h = 20, w = 7){
+  DefaultAssay(obj) = "RNA"
+  
+  if(!is.null(sel_group)){
+    features_dt = features_dt[group %in% sel_group,]
+  }
+  avge = DotPlot(obj, features = features_dt$gene)$data %>%
+    as.data.frame() %>%
+    setDT()
+  avge = avge[id %in% c("astH1", "astH2", "astR1", "astR2"), ]
+  avge[, group := features_dt[avge, on = c("gene" = "features.plot"), group]]
+  avge[, group := factor(group, levels = c(
+    "astH1", "astH2", "astH1/H2 common",
+    "astR1", "astR2", "astR1/R2 common"
+  ))]
+  avge[, sugroup := features_dt[avge, on = c("gene" = "features.plot"), group]]
+  avge[, features.plot := features.plot %>% as.character()]
+  avge[, features.plot := factor(features.plot, 
+      levels = sort(features.plot %>% unique(), decreasing = T))]
+  
+   pd = ggplot(avge, aes(
+     x = id, y = features.plot, 
+     color = avg.exp.scaled, size = pct.exp)
+    ) +
+    geom_point() +
+    scale_color_gradient2(
+        name = "Expression \n z-score", 
+        low="#2F79D2",
+        mid="white",
+        high="#C22023", na.value = "gray", 
+        midpoint = 0,
+        limits = c(-2.1, 2.5)
+      ) +
+     scale_size(
+        range = c(1, 6),
+        breaks = c(25, 50, 75, 100)
+     ) +
+     facet_grid(group ~ ., space = "free", scales = "free") +
+     my_border_theme()+ 
+     labs(y = "Genes")
+  return(list(p = pd, data = avge))
+}
+
+fig5b_H = do_dotplot(
+  merged, features_dt = fig_dt,
+  sel_group = c("astH1", "astH2", "astH1/H2 common")
+)
+fig5b_R = do_dotplot(
+  merged, features_dt = fig_dt,
+  sel_group = c("astR1", "astR2", "astR1/R2 common")
+)
+
+fig5b = ggarrange(
+  fig5b_H$p + theme(axis.title.x = element_blank()) + theme(axis.text.x = element_text(angle = 15)),
+  fig5b_R$p + theme(axis.title.y = element_blank() + theme(axis.text.x = element_text(15)),
+                    axis.title.x = element_blank()) + theme(axis.text.x = element_text(angle = 15)),
+  ncol = 2, nrow = 1,
+  align = "hv",
+  common.legend = T,
+  legend = "right"
+)
+
+# save plot
+ggsave(
+  fig5b, 
+  filename = file.path("../Results/Figure_5/figure5c.png"), 
+  height = 10, width = 8,
+  limitsize = FALSE
+)
+```
+
+Figure 5c: 
+Proportions of astrocytes clusters across brain regions and pathology stages 
+```{r}
+ncell_dt = fread(file.path("Example_Data", "proportion_cells.csv"))
+ncell_dt[, ast_cluster := ifelse(is.na(group), "astIM", group)]
+ncell_dt[, ast_cluster := factor(ast_cluster, labels = c("astH", "astH", "astIM", "astR", "astR"))]
+ncell_dt2 = ncell_dt[, .(ncells_ast_cluster = sum(ncells)), by = .(ast_cluster, DonorID, region)]
+ncell_dt2[, region := factor(region, levels = c("EC", "ITG", "PFC", "V2", "V1"))]
+
+ncell_dt2[, ncell_sample := sum(ncells_ast_cluster), by = .(DonorID, region)]
+ncell_dt2[, pct_sample := ncells_ast_cluster/ncell_sample]
+
+ncell_dt2[ncell_dt, on = .(DonorID), path_group := i.path_group]
+
+ncell_dt2[, mean_pct_trend := mean(pct_sample, na.rm = T), by = .(path_group, region, ast_cluster)]
+ncell_dt2[, mean_id := paste(region, path_group, ast_cluster, sep = "_")]
+ncell_dt2[, sd_pct_trend := sd(pct_sample, na.rm = T), by = .(path_group, region, ast_cluster)]
+ncell_path = copy(ncell_dt2)
+ncell_path[, region := factor(region, levels = c("EC", "ITG", "PFC", "V2", "V1"))]
+ncell_path[, path_mean_pct_trend := mean(pct_sample, na.rm = T), by = .(path_group, ast_cluster)]
+ncell_path[, path_sd_pct_trend := sd(pct_sample, na.rm = T), by = .(path_group, ast_cluster)]
+ncell_path[, path_median_pct_trend := mean(pct_sample, na.rm = T), by = .(path_group, ast_cluster)]
+ncell_path = ncell_path[, .(path_group, region, ast_cluster, path_mean_pct_trend, path_sd_pct_trend, path_median_pct_trend)] %>% unique()
+ncell_region = copy(ncell_dt2)
+ncell_region[, region_mean_pct_trend := mean(pct_sample, na.rm = T), by = .(region, ast_cluster)]
+ncell_region[, region_median_pct_trend := median(pct_sample, na.rm = T), by = .(region, ast_cluster)]
+ncell_region[, region := factor(region, levels = c("EC", "ITG", "PFC", "V2", "V1"))]
+ncell_region[, region_sd_pct_trend := sd(pct_sample, na.rm = T), by = .(region, ast_cluster)]
+ncell_region = ncell_region[, .(path_group, region, ast_cluster, region_mean_pct_trend, region_sd_pct_trend, region_median_pct_trend)] %>% unique()
+
+ncell_path<- ncell_path[,pathology_groups := gsub("Path ", "", path_group)]
+ncell_dt2<- ncell_dt2[,pathology_groups := gsub("Path ", "", path_group)]
+
+ggplot(
+  unique(ncell_path[, .(pathology_groups, path_mean_pct_trend, ast_cluster)])
+) +
+  geom_bar(aes(x = pathology_groups, y = path_mean_pct_trend, group = ast_cluster,
+                fill = ast_cluster), stat = "identity", width = 0.4) +
+  facet_grid(ast_cluster~.) +
+  my_border_theme() +
+  labs(x = "Pathology stage", y = "Proportion") +
+  theme(legend.position = "top") +
+  theme(legend.title = element_blank())+
+  geom_jitter(
+    data = ncell_dt2,
+    aes(x = pathology_groups, y = pct_sample),
+    size = 0.5, width = 0.1, color = "black") +
+  scale_fill_manual(values = c("lightblue", "orange", "red"))
+
+ggsave(file.path("../Results/proportion_path_bar.png"), width = 3)
+
+
+ggplot(
+  unique(ncell_region[, .(region, region_median_pct_trend, ast_cluster)])
+) +
+  
+  geom_bar(aes(x = region, y = region_median_pct_trend, group = ast_cluster,
+                fill = ast_cluster), stat = "identity", width = 0.4) +
+  theme(legend.title = element_blank())+
+  geom_jitter(
+    data = ncell_dt2,
+    aes(x = region, y = pct_sample),
+    size = 0.5, width = 0.1, color = "black") +
+  facet_grid(ast_cluster~.) +
+  my_border_theme() +
+  labs(x = "Regions", y = "Proportion") +
+  theme(legend.position = "top") +
+  scale_fill_manual(values = c("lightblue", "orange", "red"))
+ggsave(file.path("../Results/proportion_region_bar.png"), width = 3)
+```
+

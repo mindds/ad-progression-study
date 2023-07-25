@@ -1,7 +1,5 @@
 ---
 title: "Previous_studies"
-author: "Rojashree Jayakumar"
-date: "2022-10-31"
 output: html_document
 ---
 
@@ -9,7 +7,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-#Functions
+Custom functions
 ```{r}
 #' calculate total number of cells 
 #' 
@@ -106,18 +104,12 @@ avg_exp_genes = function(counts, clabels, dataset, region, celltype_map = NULL){
 }
 ```
 
-
-Do not run these chunks locally.
-
-Grubman, Mathys Leng and Lau datasets need preprocessing 
+Grubman, Mathys Leng and Lau datasets preprocessing.
 
 Grubman preprocessing
 ```{r}
 # # This code is used to load Grubman et al data into R, create seurat object and 
 # filtering genes and cells as described in Grubman et al's paper
-
-
-
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # note
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -227,21 +219,9 @@ save(grubman_ast, file = grubman_ast_f)
 ```
 
 Leng preprocessing
-
 ```{r}
 # This code is used to load Leng et al data into R, create seurat object and 
 # filtering genes and cells as described in Leng et al's paper
-
-
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-# note
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-# parameters
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 # load required packages
 require(pbapply)
 require(data.table)
@@ -269,33 +249,9 @@ leng = Read10X_h5(file.path(data_dir, "GSM4432635_SFG2_raw_gene_bc_matrices_h5.h
 ```
 
 Lau preprocessing
-
 ```{r}
 # This code is used to load Lau et al data into R, create seurat object and 
 # filtering genes and cells as described in Lau et al's paper
-
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-# notes
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-# Q&A from author
-
-# Q1:
-#   - 1st round of QC is done by Cellranger and we used the filtered output for 2nd round of QC in Seurat.
-# - For 2nd roudn QC, we used nFeature_RNA > 200 & nCount_RNA < 20000 & percent.mt < 20 (instead of nFeature_RNA < 20000). Maybe you can try redoing the QC? Our experience is that the # of nuclei obtained varies dependent on your integration parameters as well. I won't expect the # to be exactly the same but similar.
-# 
-# Q2:
-#   - We didn't aggregate them into a single mtx using cellragner.
-# - We created Seurat object for individual --> QC --> integrate using default CCA.
-# 
-# run a canonical correlation analysis to identify common sources of variation between the two datasets. 
-# RunCCA will also combine the two objects into a single object and stores the canonical correlation vectors (the vectors that project each dataset into the maximally correlated subspaces)
-
-
-
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-# parameters
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 # load required packages
 require(pbapply)
 require(data.table)
@@ -507,26 +463,11 @@ cat("Done\n")
 
 ```
 
-
 Mathys preprocessing
-
 ```{r}
 # # This code is used to load Mathys et al data into R, create seurat object and 
 # filtering genes and cells as described in Mathys et al's paper
-# author: Zhaozhi Li
-# version: 10-10-2021
 
-
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-# note
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-# parameters
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-# load required packages
 require(pbapply)
 require(data.table)
 require(tidyverse)
@@ -588,15 +529,10 @@ ggsave(p, file = file.path(data_dir, "mathys_dimplot_all.pdf"))
 
 ```
 
-
 These chuncks are used to generate dataframes of average total reads, average expressed genes and total cells for all the different datasets
-
 Each chunk is run to retreive for the corresponding dataset and finally they are merged to form 3 dataframes (average total reads, average expressed genes and total cells)
 
-
-
-# Leng
-
+Leng
 ```{r}
 # reformat cell type names
 martin$EC$clusterCellType %>% unique()
@@ -656,9 +592,7 @@ martin_avg_exp_genes = rbind(
 )
 ```
 
-
-# Mathys
-
+Mathys
 ```{r}
 # reformat celltype names
 rosmap$broad.cell.type %>% unique()
@@ -695,9 +629,7 @@ rosmap_avg_exp_genes = avg_exp_genes(
 )
 ```
 
-
-# Grubman
-
+Grubman
 ```{r}
 # reformat celltype names
 grubman$celltype %>% unique()
@@ -735,9 +667,7 @@ grubman_avg_exp_genes = avg_exp_genes(
 )
 ```
 
-
-# Lau
-
+Lau
 ```{r}
 # reformat celltype names
 lau$celltype %>% unique()
@@ -774,9 +704,7 @@ lau_avg_exp_genes = avg_exp_genes(
 )
 ```
 
-
-#Smith
-
+Smith
 ```{r}
 Smith <- readRDS("/autofs/space/mindds_001/projects/AbbvieSnRNASeq/data/published_AD/Smith/Smith_et_al_2022_sce.rds")
 smith<- as.Seurat(Smith, data = NULL)
@@ -843,9 +771,9 @@ smith_SSC_avg_exp_genes = avg_exp_genes(
 
 ```
 
-# This studay 
-rPCA integrated dataset for each region is loaded 
-## BA20
+Present study: rPCA integrated dataset for each region is loaded. 
+
+BA20
 ```{r}
 # load BA20 data
 ba20_f = file.path(data_dir, "Rdata", "BA20-rPCA-clear-preprocessed.RData")
@@ -886,8 +814,7 @@ ba20_avg_exp_genes = avg_exp_genes(
 rm(rPCA)
 ```
 
-
-## EC
+EC
 ```{r}
 # load EC data
 ec_f = file.path(data_dir, "Rdata", "EC_rPCA-clear-preprocessed.RData")
@@ -919,8 +846,7 @@ ec_avg_exp_genes = avg_exp_genes(
 rm(EC_rPCA)
 ```
 
-
-## BA46
+BA46
 ```{r}
 # load BA46 data
 ba46_f = file.path(data_dir, "Rdata", "annie", "BA46_rPCA.Rdata")
@@ -952,7 +878,7 @@ ba46_avg_exp_genes = avg_exp_genes(
 rm(BA46_rPCA)
 ```
 
-## V1
+V1
 ```{r}
 # load V1 data
 v1_f = file.path(data_dir, "Rdata", "annie", "V1_rPCA.Rdata")
@@ -983,7 +909,7 @@ v1_avg_exp_genes = avg_exp_genes(
 rm(V1_rPCA)
 ```
 
-## V2
+V2
 ```{r}
 # load V2 data
 v2_f = file.path(data_dir, "Rdata", "annie", "V2_rPCA.Rdata")
@@ -1015,9 +941,7 @@ v2_avg_exp_genes = avg_exp_genes(
 rm(V2_rPCA)
 ```
 
-
-
-# merge
+merge
 ```{r}
 ba20_ncells[, region := "ITG"]
 ba46_ncells[, region := "PFC"]
@@ -1086,10 +1010,7 @@ ave.expgenes[, labels := ifelse(dataset == "Hyman lab-Abbvie", region,
 fwrite(ave.expgenes, file.path("figs1_ave.expgenes_published.AD.datasets.csv"))
 ```
 
-
-Only this chunk can be run locally.
-
-this chunk is used to generate fig S1a, which compares the number of cells and genes with the present study
+Supplementary figure 1b
 ```{r}
 my_theme = function(){
     theme(
@@ -1106,9 +1027,9 @@ my_theme = function(){
     )
 }
 
-ncells<- fread(file.path("..","Data/Supplementary_figures_data/Supp_Fig1_data/figs1_ncells_published.AD.datasets.csv"))
-ave.totalreads<- fread(file.path("..","Data/Supplementary_figures_data/Supp_Fig1_data/figs1_ave.totalreads_published.AD.datasets.csv"))
-ave.expgenes<- fread(file.path("..","Data/Supplementary_figures_data/Supp_Fig1_data/figs1_ave.expgenes_published.AD.datasets.csv"))
+ncells<- fread("Example_Data/ncells_published.AD.datasets.csv")
+ave.totalreads<- fread("Example_Data/ave.totalreads_published.AD.datasets.csv")
+ave.expgenes<- fread("Example_Data/ave.expgenes_published.AD.datasets.csv")
 
 sel_celltypes = c("astrocyte", "microglia", "endothelial")
 
@@ -1155,17 +1076,11 @@ p_avg.exp.genes = ggplot(ave.expgenes[celltypes %in% sel_celltypes, ],
                      values = c("#9AD3BC", "#F3EAC2", "#F5B461")) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
         legend.position = "none") 
-#ggsave(p_totalreads, filename = file.path(p_dir, "ave.expgenes_published.AD.png"), width = 4)
-
-# FC for AAIC:
-# ave.expgenes[celltypes == "astrocyte", ] %>%
-#   .[, .(avg_exp_genes = mean(avg_exp_genes)), by = .(group)]
-# 2670.593/1066.513
-# round(2670.593)
 
 figs1b = ggarrange(p_ncells, p_totalreads, p_avg.exp.genes, ncol = 3, nrow = 1, align = "hv")
 figs1b
-# ggsave(figs1b, filename = file.path(p_dir, "figs1b.png"),
-#        height = 5, width = 11)
+
 
 ```
+
+Note: All the chunk except the last one were on a GPU cluster. The data from the present study will be available upon request.

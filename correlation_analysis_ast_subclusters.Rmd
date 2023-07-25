@@ -1,0 +1,349 @@
+---
+title: "Astrocyte Subcluster Correlation based on High Variable Genes"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load required packages
+```{r}
+require(dendextend)
+require(SNFtool)
+require(data.table)
+require(tidyverse)
+require(pbapply)
+require(ComplexHeatmap)
+```
+
+Load data
+```{r}
+# load HVGs
+ast_hvgs_dts.2 = fread("Example_Data/ast_HVG.csv")
+
+# load DE analysis result
+load("Example_Data/gene_deg_all.Rdata")
+```
+
+Gene rank correlation - custom functions
+```{r}
+#' subset DE analysis list by selected genes
+#' 
+#' @param deg_dts list; a list of data.table that contains DE analysis results
+#' @param features vector; a vector of gene names
+#' 
+#' @return a list of data.table for given genes
+subset_deg = function(deg_dts, features){
+  pblapply(deg_dts, function(deg_dt){
+    return(deg_dt[gene %in% features, ])
+  })
+}
+
+#' function to do correlation test and return selected value
+#' @param x vector; vector for spearman correlation test
+#' @param y vector; vector for spearman correlation test
+#' @param value string; which value you want to return
+#' @param metod string; method to use for the correlation test
+cor_test_results = function(x, y, value = "p.value", method = "spearman"){
+  r = cor.test(x=x,
+               y=y,
+               method = method)
+  return(r[value])
+}
+
+#' correlation analysis based on DE results (avg.logFC)
+#' 
+#' @param deg_dts list; a list of data.table that 
+#' @param method string; method used for correlation analysis (default = "pearson")
+#' 
+#' @return a data.table contains correlation analysis results; 
+cor_gene_ranks = function(deg_dts, method = "pearson"){
+  # intersect of genes from all DE results
+  inter_genes = Reduce(intersect, map(deg_dts, ~.x[, gene]))
+  deg_dts = lapply(deg_dts, function(deg_dt){
+    deg_dt[gene %in% inter_genes, ]
+  })
+  all_deg_dt = do.call(rbind, deg_dts)
+  
+  cors = pblapply(deg_dts, function(region_dt){
+    subcluster_dts = split(region_dt, region_dt$cluster)
+    dts = lapply(subcluster_dts, function(subcluster_dt){
+      dt = subcluster_dt[all_deg_dt, on = .(gene)]
+      # p-value
+      dt[, avg.log2FC_cor_p := cor_test_results(
+        x = avg_log2FC, y = i.avg_log2FC, 
+        value = "p.value", method = method), 
+        by = .(i.brain_region, i.cluster)]
+      # R
+      dt[, avg.log2FC_cor_R := cor_test_results(
+        x = avg_log2FC, y = i.avg_log2FC, 
+        value = "estimate", method = method), 
+        by = .(i.brain_region, i.cluster)]
+      return(
+        dt[, .(subcluster1 = paste(brain_region, cluster, sep = ":"), 
+               subcluster2 = paste(i.brain_region, i.cluster, sep = ":"), 
+               avg.log2FC_cor_p, avg.log2FC_cor_R)] %>% unique()
+             )
+    })
+    dts = do.call(rbind, dts)
+    return(dts)
+  })
+  cors = do.call(rbind, cors)
+  return(cors)
+}
+
+#' calculate affinity by Ayush
+affinityCustom = function (diff, sigma = 0.5) 
+{
+  N <- nrow(diff)
+  diff <- (diff + t(diff))/2
+  diag(diff) <- 0
+  sortedColumns <- as.matrix(t(apply(diff, 2, sort)))
+  finiteMean <- function(x) {
+    return(mean(x[is.finite(x)]))
+  }
+  # this line has been modified to remove [, 1:K + 1]
+  means <- apply(sortedColumns, 1, finiteMean) + 
+    .Machine$double.eps
+  avg <- function(x, y) {
+    return((x + y)/2)
+  }
+  Sig <- outer(means, means, avg)/3 * 2 + diff/3 + .Machine$double.eps
+  Sig[Sig <= .Machine$double.eps] <- .Machine$double.eps
+  densities <- dnorm(diff, 0, sigma * Sig, log = FALSE)
+  W <- (densities + t(densities))/2
+  return(W)
+}
+
+
+#' spectral clustering
+#'
+#' @param mtx matrix
+#' @param k numeric; numer of clusters
+#' 
+#' @return a vector of clusters
+spectral_clustering = function(mtx, k, seed = 77){
+  set.seed(seed)
+
+  # calculate distance matrix
+  distM = mtx %>% SNFtool::dist2(., .) %>% .^(1/2)
+  # calculate similarity matrix
+  simM = affinityCustom(distM)
+  # perform spectral clustering
+  clustA = spectralClustering(simM, K = k)
+  
+  return(clustA)
+}
+```
+
+Correlation
+```{r}
+ast_hvgs.2 = ast_hvgs_dts.2[, hvgs] %>%
+  unique() %>%
+  sort()
+
+# DE analysis results
+gene_deg.2 = subset_deg(
+  deg_dts = gene_deg_all, 
+  features = ast_hvgs.2
+)
+cor2 = cor_gene_ranks(
+  deg_dts = gene_deg.2
+)
+
+# heatmap
+cor2_mtx = cor2 %>% 
+  dcast(subcluster1 ~ subcluster2, value.var = "avg.log2FC_cor_R") %>%
+  as.data.frame() %>%
+  column_to_rownames("subcluster1") %>% 
+  as.matrix()
+
+
+
+# spectral clustering
+sclust2 = spectral_clustering(cor2_mtx, k = 10)
+Heatmap(cor2_mtx,
+        row_split = sclust2,
+        column_split = sclust2)
+
+# cluster annotation
+# Hs
+clust_annot2 = data.table(
+  region_cluster = c("V2:2", "V1:3", "V1:0", "BA20:0", "V2:0", "BA46:0"),
+  cluster_group = "astH1"
+)
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("EC:9", "V1:2", "EC:6", "EC:5", "EC:0"),
+    cluster_group = "astH2"
+))
+
+# IMs
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("V1:8", "EC:8", "BA46:6"),
+    cluster_group = "astIM1"
+))
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("V2:1", "BA20:1", "BA46:1"),
+    cluster_group = "astIM2"
+))
+
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("BA46:4"),
+    cluster_group = "astIM3"
+))
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("V2:4", "BA20:2", "V1:6", "BA46:3"),
+    cluster_group = "astIM4"
+))
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("V1:1"),
+    cluster_group = "astIM5"
+))
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("EC:1", "BA20:5"),
+    cluster_group = "astIM6"
+))
+# Rs
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("V2:5", "BA20:4", "V1:5", "EC:3"),
+    cluster_group = "astR2"
+))
+clust_annot2 = rbind(clust_annot2, 
+  data.table(
+    region_cluster = c("EC:2", "V2:3", "BA20:3", "BA46:2", "V1:4"),
+    cluster_group = "astR1"
+))
+
+# group
+clust_annot2[, cluster_group := factor(cluster_group, levels = clust_annot2$cluster_group %>% unique())]
+clust_annot2[, type := ifelse(grepl("astR", cluster_group), "astR",
+                       ifelse(grepl("astH", cluster_group), "astH",
+                              "IM"))]
+clust_annot2[, color := ifelse(grepl("astR", cluster_group), "#C25757",
+                       ifelse(grepl("astH", cluster_group), "#3A68AE",
+                              "#E9C61D"))]
+clust_annot2[, region := strsplit(region_cluster, ":") %>% 
+               map(., ~(.x[1])) %>% 
+               unlist()]
+clust_annot2[, cluster := strsplit(region_cluster, ":") %>% 
+               map(., ~(.x[2])) %>% 
+               unlist()]
+
+nrow(clust_annot2)
+dim(cor2_mtx)
+cor2_mtx_order = clust_annot2[data.table(region_cluster = rownames(cor2_mtx)), 
+                           on = .(region_cluster)]
+
+```
+
+Figure 5a:
+Correlation plot 
+``` {r}
+require(circlize)
+col_fun = colorRamp2(c(-1, 0, 1), c("#42B842", "white", "#862D84"))
+
+colnames(cor2_mtx) = gsub("BA20", "ITG", colnames(cor2_mtx))
+colnames(cor2_mtx) = gsub("BA46", "PFC", colnames(cor2_mtx))
+rownames(cor2_mtx) = gsub("BA20", "ITG", rownames(cor2_mtx))
+rownames(cor2_mtx) = gsub("BA46", "PFC", rownames(cor2_mtx))
+
+cor2_mtx_order$region_cluster = gsub("BA20", "ITG", cor2_mtx_order$region_cluster)
+cor2_mtx_order$region_cluster = gsub("BA46", "PFC", cor2_mtx_order$region_cluster)
+cor2_mtx_order$region = gsub("BA20", "ITG", cor2_mtx_order$region)
+cor2_mtx_order$region = gsub("BA46", "PFC", cor2_mtx_order$region)
+
+clust_annot2[, region_cluster_raw := region_cluster]
+clust_annot2$region_cluster = gsub("BA20", "ITG", clust_annot2$region_cluster)
+clust_annot2$region_cluster = gsub("BA46", "PFC", clust_annot2$region_cluster)
+clust_annot2$region_cluster_raw = gsub("BA20", "ITG", clust_annot2$region_cluster_raw)
+clust_annot2$region_cluster_raw = gsub("BA46", "PFC", clust_annot2$region_cluster_raw)
+clust_annot2$region = gsub("BA20", "ITG", clust_annot2$region)
+clust_annot2$region = gsub("BA46", "PFC", clust_annot2$region)
+
+cor2_mtx_order$cluster_group = factor(cor2_mtx_order$cluster_group,
+                                      levels = clust_annot2$cluster_group %>% unique())
+
+
+cor_annot = clust_annot2[data.table(region_cluster = rownames(cor2_mtx)),
+                         on = .(region_cluster)]
+cluster_orders = c("astH1","astH2","astIM1","astIM2","astIM3","astIM4","astIM5","astIM6","astR2","astR1")
+
+colors = c(
+  "astH1" = "#2F79D2",
+  "astH2" = "#7DCDF0", 
+  "astIM1" = "#66c2a5",
+  "astIM2" = "#abdda4", 
+  "astIM3" = "#e6f598",
+  "astIM4" = "#fee08b",
+  "astIM5" = "#fdae61",
+  "astIM6" = "#f46d43",
+  "astR2" = "#D2514F", 
+  "astR1" = "#C22023"
+)
+
+cor_annot[, color := colors[cluster_group]]
+clust_annot2[, color := colors[cluster_group]]
+
+cluster_group_labels = as.list(cor_annot$cluster_group)
+  
+row_annot = rowAnnotation(
+  df = cor_annot[, .(clusters = cluster_group)],
+  col = list(clusters = colors),
+  annotation_width = unit(c(1, 4), 'cm'),
+  gap = unit(1, 'mm')
+)
+col_annot = HeatmapAnnotation(
+  df = cor_annot[, .(clusters = cluster_group)],
+  col = list(clusters = colors),
+  annotation_width = unit(c(1, 4), 'cm'),
+  gap = unit(1, 'mm'),
+  show_legend = F
+)
+
+col_fun = colorRamp2(c(-1, 0, 1), c("blue", "white", "red"))
+p_h = Heatmap(
+  cor2_mtx,
+  # color scale
+  col = col_fun, 
+  # annotations
+  right_annotation = row_annot,
+  top_annotation = col_annot,
+  # order of clusters (column & row of heatmap)
+  row_order = clust_annot2$region_cluster,
+  column_order = clust_annot2$region_cluster,
+  # split heatmap by cluster group
+  row_split = cor_annot$cluster_group,
+  column_split = cor_annot$cluster_group,
+  name = "correlation",
+  row_names_side = "right",
+  column_names_side = "top",
+  row_title_side = "right",
+  column_title_side = "top",
+  row_title_gp = gpar(fontface = "bold", fontsize = 15),      
+  column_title_gp = gpar(fontface = "bold",fontsize = 15),
+  column_title_rot = 90,
+  row_title_rot = 0,
+  # black box around the cluster
+  layer_fun = function(j, i, x, y, width, height, fill, slice_r, slice_c){
+    v = pindex(cor2_mtx, i, j)
+    if(sum(v > 0.4)/length(v) > 0.4 & j[1] == i[1]) {
+      grid.rect(gp = gpar(lwd = 3, fill = "transparent"))
+    }
+  }
+)
+
+png(file.path("../Results/fig5a.png"),
+    width = 700, height = 700)
+draw(p_h)
+dev.off()
+```
+

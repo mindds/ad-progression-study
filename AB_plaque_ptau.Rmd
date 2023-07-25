@@ -14,23 +14,12 @@ require(data.table)
 require(tidyverse)
 require(ggpubr)
 require(cowplot)
-```
-
-```{r}
-#load some functions - themes
 source("Helper_scripts/figure_themes.R")
 ```
 
+The following code chunk was run on a GPU cluster. Processed data used as input will be available upon request
 
-<<<<<<< HEAD
-The below chunk is used to get the metadata file from the rPCA integrated Suerat objects
-
-Run the following chunk on GPU/cluster
-=======
-Process metadata from the rPCA integrated Suerat objects.
-#run the following chunk on GPU/cluster
->>>>>>> rojashree
-
+Process metadata from the rPCA integrated Suerat objects. 
 ```{r}
 # get individual meta
 get_ind_meta = function(obj, region){
@@ -94,10 +83,6 @@ meta = rbind(
   V1_meta
 )
 
-fwrite(meta, file.path(results_dir, "Abbvie_AD_progression_meta.csv"))
-
-meta = fread(file.path(results_dir, "Abbvie_AD_progression_meta.csv"))
-
 meta[A == "unk", Donor.ID] %>% unique()
 
 meta[Donor.ID == "1636", .(Donor.ID, A, B, Braak, C)] %>% unique()
@@ -114,12 +99,11 @@ meta[Donor.ID == "1703", A := 0]
 meta[B == "unk", Donor.ID] %>% unique()
 meta[C == "unk", Donor.ID] %>% unique()
 
-fwrite(meta, file.path(results_dir, "Abbvie_AD_progression_meta.csv"))
+fwrite(meta, "AD_progression_meta.csv")
 ```
 
-
-Figure 1d - AB plaque load and ptau/Tau ratio by region
-
+Figure 1d:
+AB plaque load and ptau/Tau ratio by region
 ```{r}
 # figure theme
 my_theme = function(){
@@ -145,7 +129,7 @@ pathgrp_colors = c(
 )
 
 
-meta = fread(file.path("../Data/Fig1_data/Abbvie_AD_progression_meta.csv"))
+meta = fread(file.path("Example_Data/AD_progression_meta.csv"))
 
 meta[, Region := factor(Region, levels = c("EC", "BA20", "BA46", "V2", "V1"))]
 meta[, region := factor(Region, labels = c("EC", "ITG", "PFC", "V2", "V1"))]
@@ -189,15 +173,10 @@ fig1d_abeta = ggplot(meta, aes(x = region, y = abeta_3D6)) +
 fig1d = ggarrange(fig1d_abeta, fig1d_ptau,
           nrow = 2, ncol = 1)
 fig1d
-# ggsave(file.path(p_dir, "figs1a.pdf"),
-#        fig1d, height = 6, width = 9)
-ggsave(file.path("../Results/Figure_1/fig1d.png"),
-       fig1d, height = 4, width = 8)
 ```
 
-
-Supplementary figure -  AB plaque load and ptau/Tau ratio by pathology stage
-
+Supplementary figure 1c:
+AB plaque load and ptau/Tau ratio by pathology stage
 ```{r}
 pathgrp_colors = c(
   "Braak 0/I/II" = "#457b9d",
@@ -206,7 +185,7 @@ pathgrp_colors = c(
   "Braak VI" = "#e63c49"
 )
 
-meta = fread(file.path("../Data/Fig1_data/Abbvie_AD_progression_meta.csv"))
+meta = fread(file.path("Example_data/AD_progression_meta.csv"))
 
 meta[, Region := factor(Region, levels = c("EC", "BA20", "BA46", "V2", "V1"))]
 meta[, region := factor(Region, labels = c("EC", "ITG", "PFC", "V2", "V1"))]
@@ -245,8 +224,6 @@ fig1d_abeta_2 = ggplot(meta, aes(x = Path..Group., y = abeta_3D6)) +
 
 fig1d_2 = ggarrange(fig1d_abeta_2, fig1d_ptau_2,
           nrow = 2, ncol = 1)
-ggsave(file.path("../Results/Supplementary_figures/fig1d_facet.by.brain.regions.png"),
-        fig1d_2, height = 6, width = 9)
 
 
 ```

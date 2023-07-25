@@ -1,0 +1,57 @@
+---
+title: "Astrocyte Integration, subclustering, Differential expression"
+date: "2023-07-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The following script was run on a GPU cluster. This is an example script for EC Astrocytes integration and processing. The same script was used for processing other brain regions. Processed data required as input for the script will be available upon request. 
+```{r}
+integrate_f = file.path(rdata_dir, "EC_astrocyte_integrated.Rdata")
+# load data
+EC_f = file.path(rdata_dir, "EC_rPCA.Rdata")
+load(EC_f)
+EC = EC_rPCA
+rm(EC_rPCA)
+
+# Subset astrocytes
+EC$celltype = EC$Annie_Cell_Type
+Idents(EC) = "celltype"
+ast = EC[, EC$celltype == "astrocyte"]
+DimPlot(ast)
+
+# CCA integration
+DefaultAssay(ast) = "RNA"
+ast_list = SplitObject(ast, split.by = "Donor.ID")
+n_HVG = 2000
+ast_list = lapply(X = ast_list, FUN = function(x) {
+    x = NormalizeData(x)
+    x = FindVariableFeatures(x, selection.method = "vst", nfeatures = n_HVG)
+})
+features = SelectIntegrationFeatures(object.list = ast_list, nfeatures = n_HVG)
+anchors = FindIntegrationAnchors(object.list = ast_list, anchor.features = features)
+save(anchors, file = integrate_f)
+EC_ast_cca = IntegrateData(anchorset = anchors)
+save(EC_ast_cca, file = integrate_f)
+
+# subclustering
+DefaultAssay(EC_ast_cca) = "integrated"
+EC_ast_cca = ScaleData(EC_ast_cca, verbose = FALSE)
+EC_ast_cca = RunPCA(EC_ast_cca, npcs = 50, verbose = FALSE)
+ElbowPlot(EC_ast_cca, ndims = 50)
+EC_ast_cca = RunUMAP(EC_ast_cca, reduction = "pca", dims = 1:npc)
+EC_ast_cca = FindNeighbors(EC_ast_cca, reduction = "pca", dims = 1:npc)
+EC_ast_cca = FindClusters(EC_ast_cca, resolution = seq(0.1, 1, 0.1))
+save(EC_ast_cca, file = integrate_f)
+
+# Markers
+marker_file = "../results/marker.csv"
+markers = FindAllMarkers(ast_CCA, min.pct = 0, logfc.threshold = 0, min.cells.feature = 0,
+                           test.use = "LR", return.thresh = 1, latent.vars = "Donor.ID")
+markers = df_to_dt(markers)
+fwrite(markers, marker_file)
+```
+

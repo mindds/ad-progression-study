@@ -1,0 +1,68 @@
+---
+title: "Prepare Gene marker data"
+output: html_document
+---
+
+This script is used to process the marker genes results of each brin region, to be used as input for the correlation analysis of astrocyte subclusters.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load packages
+```{r}
+library(data.table)
+```
+
+Prepare gene marker data
+```{r}
+# ********************************************************************
+# load DEG analysis results
+
+#' function to load deg analysis results
+#' @param region string which brain region the sub-clusters come from
+gene_markers = function(region){
+  marker_file = paste0("Example_Data/", region, "_marker.csv")
+  dt = fread(marker_file)
+  dt[, brain_region := region]
+  return(dt)
+}
+
+# ********************************************************************
+
+## BA46
+BA46_gene_deg = gene_markers(
+  region = "BA46"
+  )                
+
+## BA20
+BA20_gene_deg = gene_markers(
+  region = "BA20"
+) 
+
+## EC
+EC_gene_deg = gene_markers(
+  region = "EC"
+) 
+
+## V2
+V2_gene_deg = gene_markers(
+  region = "V2"
+) 
+
+## V1
+V1_gene_deg = gene_markers(
+  region = "V1"
+) 
+
+## merge
+gene_deg_all = list(
+  EC = EC_gene_deg,
+  BA46 = BA46_gene_deg,
+  BA20 = BA20_gene_deg,
+  V2 = V2_gene_deg,
+  V1 = V1_gene_deg
+)
+save(gene_deg_all, file = "Example_data/gene_deg_all.Rdata")
+```
+
+

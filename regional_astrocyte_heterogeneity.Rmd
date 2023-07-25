@@ -1,18 +1,13 @@
 ---
 title: "Regional astrocyte heterogeneity"
-description: |
-  The script performs differential expression of the astrocyte trascriptome and is used to generate plots that show the regionsl heterogeneity in astrocyte transcriptome.
-date: "`r Sys.Date()`"
-output: 
-  distill::distill_article
-  toc = true
+output: html_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-#Import packages and set directories
+Import packages and set directories
 ```{r}
 library ("data.table")
 library("dplyr")
@@ -24,12 +19,9 @@ require(tidyverse)
 require(MAST)
 library (ggVennDiagram)
 library (ggpubr)
-p_dir = file.path("..", "Results")
 ```
 
-
-Run differential analysis on GPU/cluster on the rPCA filtered astrocytes.
-
+Differential analysis was run GPU/cluster on the rPCA integrated astrocytes. Input data will be available upon request.
 ```{r}
 load("../Data/ast_ctrl_rPCA")
 # @ ast_ctrl_rPCA - Suerat object which has the astrocyte filtered data
@@ -38,20 +30,16 @@ region_de = FindAllMarkers(ast_ctrl_rPCA,
                     min.cells.feature = 0, return.thresh = 1, 
                     test.use = "LR", latent.vars = "Donor.ID")
 region_de = region_de %>% rownames_to_column("gene_name") %>% setDT()
-fwrite(region_de, file.path("../Data/ast_ctrl_de_01042022.csv"))
+fwrite(region_de, file.path("../Data/ast_ctrl_de.csv"))
 ```
-
 
 ```{r}
-#load the file
-path1_de = fread(file.path("../Data/Fig2_data/ast_ctrl_de_01042022.csv"))
+#load the file - Differential expression results
+path1_de = fread(file.path("Example_Data/ast_ctrl_de.csv"))
 ```
 
-#Venn diagrams 
-This shows upregulated and lowregulated gene counts in each region of the brain for astrocytes
-(corresponds to figure 2a)
-
-
+Figure 2a
+Venn diagrams of the differentially expressed genes (DEGs)
 ```{r}
 path1_de[, region := factor(region, levels = c("EC", "ITG", "PFC", "V2", "V1"))]
 # up
@@ -111,25 +99,19 @@ fig2a_down = ggVennDiagram(
         legend.title=element_text(size=14))
 
 ggarrange (fig2a_up, fig2a_down)
-
-ggsave (filename = file.path(p_dir,"Fig2/Figure2a.png"), height = 3, width = 6)
 ```
 
-#Heatmap 
-
-corresponds to Fig2B
-
-#are the Differentially expressed genes (DEGs) that pass the average fold-change (FC) cut off (FC > 1.2 for up-regulated genes and FC < 0.8 for the down-regulated genes), had a false discovery rate (FDR) < 0.05 and were expressed in greater than 50% of the cells in the given brain region are reported?
-
+Figure 2b
+Heatmap of DEGs in each brain region (upregulated in red and downregulated in green) ranked by average log fold-change. 
 ```{r}
 require(openxlsx)
 path1_region_up_gs = read.xlsx(
-  file.path("../Data/Fig2_data/ast_ctrl_region_de_summary_with.all.regions_asp_filtered.xlsx"),
+  "Example_Data/ast_ctrl_region_de_summary.xlsx",
   sheet = "up genes") %>%
   setDT() %>%
   .[, .(cluster, gene)]
 path1_region_down_gs = read.xlsx(
-  file.path("../Data/Fig2_data/ast_ctrl_region_de_summary_with.all.regions_asp_filtered.xlsx"),
+  "Example_Data/ast_ctrl_region_de_summary.xlsx",
   sheet = "down genes") %>%
   setDT() %>%
   .[, .(cluster, gene)]
@@ -142,11 +124,8 @@ path1_region_down_gs[, cluster := gsub("SVC", "V2", cluster)]
 path1_region_down_gs[, cluster := factor(cluster, levels = c("EC", "ITG", "PFC", "V2", "V1"))]
 ```
 
-
-
+Up-regulated genes heatmap
 ```{r}
-#Up-regulated genes heatamp run this chunck of code
-
 plot_fig2b = function(de, gs, annot_de, cluster, side = "left", 
                       alpha = 0.5, col_fun = NULL){
   # define color
@@ -210,29 +189,20 @@ up_gs = up_gs[order(region, -avg_log2FC), ]
 
 path1_de[up_gs, on = .(gene), marker_region := i.region]
 path1_de[, marker_region := factor(marker_region, levels = c("EC", "ITG", "PFC", "V2", "V1"))]
+
 fig2b_up = plot_fig2b(
   de = path1_de,
   gs = up_gs,
   cluster = up_gs$marker_region,
   annot_de = path1_region_up_gs
 )
-
-fig2b_up
-png(file.path(p_dir, "Fig2/fig2b_up_heatmap.png"),
-    width = 300, height = 1300)
-draw(fig2b_up)
-dev.off()
 ```
 
+Down-regulated genes heatmap 
 ```{r}
-##Down-regulated genes heatamp 
-
 plot_fig2b = function(de, gs, annot_de, cluster, side = "left", 
                       alpha = 0.5, col_fun = NULL){
-  # define color
-  # require(circlize)
-  # col_fun = colorRamp2(c(-1, 0, 1), c("purple", "black", "yellow"))
-  
+
   # prepare data
   mtx = de[gene %in% gs$gene, ] %>%
     dcast(., gene ~ region, value.var = "avg_log2FC") %>%
@@ -287,7 +257,6 @@ down_gs = path1_de[p_val_adj < 0.05 & avg_log2FC < -0.16 & pct.1 > 0.5, ] %>%
 down_gs = down_gs[order(region, avg_log2FC), ]
 
 path1_de[down_gs, on = .(gene), marker_region := i.region]
-#print(path1_de)
 
 fig2b_down = plot_fig2b(
   de = path1_de,
@@ -295,20 +264,12 @@ fig2b_down = plot_fig2b(
   cluster = down_gs$region,
   annot_de = path1_region_down_gs
 )
-
-#p <- fig2b_up + fig2b_down
-png(file.path(p_dir, "Fig2/fig2b_down_heatmap.png"),
-    width = 300, height = 1300)
-draw(fig2b_down)
-dev.off()
 ```
-#Fig 2D
-Mast analysis of ptau and volcano plot was generated
 
-Run the following chunks on GPU/ cluster
+The next 9 chunks were on GPU cluster. Input data will be available upon request.
 
-
-
+Figure 2d:
+Correlation analysis between pTau/Tau and gene expression levels in pathology stage 1 astrocytes. 
 ```{r setup, include=FALSE}
 knitr::opts_knit$set(
   root.dir = "/autofs/space/mindds_001/projects/AbbvieSnRNASeq/scripts/all_brain_regions/MAST"
@@ -346,7 +307,6 @@ source("sample_validation.R")
 - use sampled astrocytes from file: `r rdata_f`
 - sca file: `r sca_f`
 - use cells from brain region: BA20 & BA46 and path group 1,2,3
-
 - variables:
   - cngeneson: the cellular detection rate of a cell is a number between 0 and 1 representing the fraction of the total number of features measured that have a count > 0 in that cell
   - Braak_stage: 
@@ -354,25 +314,19 @@ source("sample_validation.R")
     - B2: III (no IV from this data)
     - B3: V, VI
   - percent.mito: percentage of mito genes
-
 ```{r}
 load(rdata_f)
 ast_sampled$sample_id = paste(ast_sampled$Donor.ID, ast_sampled$Region, sep = "_")
 allregion_path1_sampled = ast_sampled[, ast_sampled$Path..Group. == "1"]
 allregion_path1_sampled = prepare_variable(allregion_path1_sampled)
-# table(allregion_path1_sampled$Braak, allregion_path1_sampled$Braak_stage)
 ```
 
-# Filtering of genes
-
+Filtering of genes
 - filtering genes based on following cut off:
   - gene has count > 0 in at least `r pct_cut * 100`% of the cells
   - gene with variance.standardized > `r var_cut`
-
-## percentage of expression
-
+Percentage of expression
 - expressed genes were defined as if gene has count > 0 in at least `r pct_cut * 100`% of the cells
-
 ```{r}
 p_dist_allregion_path1 = p_distribution_of_gene(
   allregion_path1_sampled,
@@ -381,12 +335,9 @@ p_dist_allregion_path1 = p_distribution_of_gene(
 p_dist_allregion_path1$p
 ```
 
-
-## variance of expression
-
+Variance of expression
 - cut off for the variant genes:
   - variance.standardized > `r var_cut`
-
 ```{r}
 allregion_path1_sampled = FindVariableFeatures(allregion_path1_sampled, nfeatures = 10000)
 allregion_hvf = HVFInfo(allregion_path1_sampled) %>%
@@ -395,7 +346,7 @@ setDT(allregion_hvf)
 allregion_hvf[p_dist_allregion_path1$pct_exp_dt, on = .(gene), pct_exp := i.pct_exp]
 ```
 
-## distribution of the standardized variance
+Distribution of the standardized variance
 ```{r}
 ggplot(
     allregion_hvf,
@@ -414,11 +365,10 @@ ggplot(
     )
 ```
 
-## visualization of selected genes
+Visualization of selected genes
 ```{r}
 allregion_hvf[, is_model_genes := pct_exp > pct_cut & variance.standardized > var_cut]
 n_genes = sum(allregion_hvf$is_model_genes)
-
 
 ggplot(
   allregion_hvf,
@@ -435,9 +385,7 @@ ggplot(
   labs(title = paste("selected", n_genes, "genes"))
 ```
 
-
-## summary
-
+Summary
 ```{r}
 allregion_path1_sca = seurat_to_sca(
   allregion_path1_sampled,
@@ -447,18 +395,14 @@ save(allregion_path1_sca, file = sca_f)
 fwrite(allregion_hvf, file = geneinfo_f)
 ```
 
-
-# MAST analysis
-
+MAST analysis
 ```{r}
 test_genes = c("APOE", "HSPB1", "HSP90AA1", "APP")
 p_cut = 0.05
 logFC_cut = 0
 ```
 
-
-## f12: ~ (1|Donor.ID/sample_id) + ptau + cngeneson + ratio.mito
-
+f12: ~ (1|Donor.ID/sample_id) + ptau + cngeneson + ratio.mito
 ```{r}
 fit_f = paste0(de_f_r, "ctrl_f12.Rdata")
 dt_f = paste0(dt_f_r, "ctrl_f12.csv")
@@ -481,7 +425,8 @@ save(ptau_sum_f12_path1, file = summary_f)
 
 ```
 
-Run in local
+Figure 2d: 
+Volcano plot
 ```{r}
 p_volcano = function(
   dt, choose_level, level_col = "levels",
@@ -516,7 +461,7 @@ p_volcano = function(
     ggthemes::theme_few()
 }
 
-dt = fread(file.path("../Data/Fig2_data/mast_allregion_ast_sampled_path1_ptau_06022022_modeldt_ctrl_f12.csv"))
+dt = fread(file.path("Example_Data/mast_results.csv"))
 
 library(ggrepel)
 setnames(dt, "Pr(>Chisq)", "p")
@@ -536,12 +481,10 @@ fig2d_P1 = p_volcano(
 ggsave(fig2d_P1,filename = "../Results/Fig2/fig2d.png", height = 4)
 ```
 
-Venn diagram of EC high genes and Pathology group 1 pTau/Tau positive correlated genes and Venn diagram of EC low genes and Pathology group 1 pTau/Tau negative correlated genes 
-
-Fig 2e venn diagram
-
+Figure 2e: 
+Venn diagrams show the number of genes upregulated in EC (EC high) and/or positively correlated with the pTau/Tau ratio (top) and the number of genes downregulated in EC (EC low) and/or genes negatively correlated with pTau/Tau ratio (bottom). 
 ```{r}
-path1_de = fread(file.path("../Data/Fig2_data/ast_ctrl_de_01042022.csv"))
+path1_de = fread("Example_Data/ast_ctrl_de.csv")
 # load pTau genes
 # venn diagram
 #' @param a [vector] a vector of category 1
@@ -583,7 +526,7 @@ ec_low_gs = setdiff(
 
 
 # load 
-dt_f = file.path("../Data/Fig2_data/mast_allregion_ast_sampled_path1_ptau_06022022_modeldt_ctrl_f12.csv")
+dt_f = file.path("Example_Data/mast_results.csv")
 path1_ptau_dt = fread(dt_f)
 path1_ptau_dt[coef > 0 & adj.pvalue < 0.05, direction := "pos"]
 path1_ptau_dt[coef < 0 & adj.pvalue < 0.05, direction := "neg"]
@@ -591,11 +534,7 @@ path1_ptau_dt[is.na(direction), direction := "ns"]
 
 
 # venn of EC high & pTau/Tau pos corr genes
-png(
-  file.path(p_dir, "Fig2/fig2e_venn_path1_poscorr&echigh_adjp_0614022.png"),
-  width = 300,
-  height = 300
-)
+
 figure_2ea<- do_fig2e(
   a = path1_ptau_dt[direction == "pos", primerid],
   b = ec_high_gs,
@@ -604,8 +543,6 @@ figure_2ea<- do_fig2e(
   colors = c("#EE9595", "#FFCDA3")
 )
 
-ggsave ("../Results/Fig2/Figure_2ea.png")
-
 figure_2eb<- do_fig2e(
   a = path1_ptau_dt[direction == "neg", primerid],
   b = ec_low_gs,
@@ -613,8 +550,6 @@ figure_2eb<- do_fig2e(
   b_name = "EC low",
   colors = c("#90E0EF", "#C1F4C5")
 )
-
-ggsave ("../Results/Fig2/Figure_2eb.png")
 
 ```
 

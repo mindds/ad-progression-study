@@ -12,20 +12,38 @@ require(tidyverse)
 require(ggpubr)
 library (Seurat)
 
-# directories 
-data_dir = file.path("..", "Data")
-rdir = file.path("..", "Results")
-
 source("Helper_scripts/figure_themes.R")
 ```
 
-#run on GPU/cluster
+The following 3 chunks were run on a GPU cluster. The corresponding data will be available upon request
 ```{r}
-#load the merged data of all brain regions which has the clusters
-load("/space/mindds_001/projects/AbbvieSnRNASeq/data/Rdata/ast_all.brain.regions_cluster.group_removed.Rdata")
+# load data
+load(file.path(data_dir, "Rdata", "ast_all.brain.regions_cluster.group_removed.Rdata"))
 
-#perform differential expression between the regions
+# Calculate average
+Idents(merged) = paste(merged$Donor.ID, merged$Unified_region, sep = "_")
+ave.exp = AverageExpression(merged, slot = "data", assays = "RNA")
+ave.exp = ave.exp$RNA %>% 
+  as.data.frame() %>%
+  rownames_to_column("gene") %>%
+  as.data.table()
+```
 
+Modifying the data
+```{r}
+ave.exp_dt = melt(ave.exp, id.vars = "gene", variable.name = "donor_region", value.name = "ave.exp")
+ave.exp_dt[, ids := str_split(donor_region, "_")]
+ave.exp_dt[, Donor.ID := map(ids, ~(.x[1])) %>% unlist()]
+ave.exp_dt[, Unified_region := map(ids, ~(.x[2])) %>% unlist()]
+ave.exp_dt[, ids := NULL]
+ave.exp_dt[, Region := factor(Unified_region, levels = c("EC", "BA20", "BA46", "V2", "V1"))]
+ave.exp_dt[, Region := factor(Region, labels = c("EC", "ITG", "PFC", "V2", "V1"))]
+# table(ave.exp_dt$Region, ave.exp_dt$Unified_region)
+save(ave.exp_dt, file = file.path(rdata_dir, "ast_sample.level.average.expression_filtered.Rdata"))
+```
+
+Perform differential expression between the regions
+```{r}
 Idents(merged) <- "Unified_region"
 ECvsITG_DonorID <- FindMarkers(merged, ident.1 = "EC", ident.2 = "BA20", test.use = "LR", latent.vars = c("Path..Group.", "Donor.ID"))
 setDT(ECvsITG_DonorID, keep.rownames = TRUE)
@@ -44,6 +62,7 @@ setDT(V2vsV1_DonorID, keep.rownames = TRUE)
 fwrite (V2vsV1_DonorID,"/space/mindds/1/projects/AbbvieSnRNASeq/scripts/differential_expression/Results/V2vsV1_DonorID.csv" )
 
 
+# get significant genes
 get_sig_genes = function(de_df, p.cut = 0.05){
   return(de_df[de_df$p_val_adj < p.cut, ]$genes)
 }
@@ -59,38 +78,27 @@ writeLines(union_sig_genes, "union_sig_genes.txt")
 
 ```
 
+Spatial Trajectory clustering
 ```{r}
-load(file.path(data_dir, "AD progression", "ast_sample.level.average.expression_filtered.Rdata"))
+# Average expression results
+load("Example_data/ast_sample.level.average.expression_filtered.Rdata")
 
-ind_meta = fread(file.path(data_dir, "Fig1_data", "Abbvie_AD_progression_meta.csv")) 
+ind_meta = fread("Example_data/AD_progression_meta.csv")
 ind_meta = ind_meta[, c("Donor.ID", "Path..Group.")] %>%
   unique()
 ind_meta[ , Donor.ID := as.character(Donor.ID)]
 
 ave.exp_dt[ind_meta, on = .(Donor.ID), path_group := i.Path..Group.]
-ggplot(
-  ave.exp_dt[gene == "HES4"],
-  aes(x = Region, y = log2(ave.exp*100))
-)  +
-  geom_boxplot() +
-  geom_jitter(width = 0.1) +
-  facet_grid(.~path_group) +
-  labs(y = "log2cpm")
-```
 
 # z-scores of genes across brain regions within donor
-```{r}
+
 ave.exp_dt[, zscore_donor := scale(ave.exp*100), by = .(Donor.ID, gene)]
-```
 
-
-
-```{r}
 # clustering based on selected pathgroup
-de_fs = list.files(file.path(rdir, "AD progression", "differential_expresion_results")) %>%
+de_fs = list.files("Example_Data/differential_expression_results") %>%
   grep("_DonorID.csv", ., value = T)
 de_gs = lapply(de_fs, function(f){
-  dt = fread(file.path(rdir, "AD progression", "differential_expresion_results", f))
+  dt = fread(file.path("Example_Data/differential_expression_results", f))
   dt[, contract := f]
   setnames(dt, "rn", "Gene")
   return(dt[p_val_adj < 0.05, Gene])
@@ -142,20 +150,13 @@ pathall_clust = path_group_clustering(
 
 ```
 
-
-
-Fig 3a, b - run locally
-
-
-
+Figure 3a:
+Spatial trajectory gene sets result from clustering the n=504 DEGs between any two “adjacent” nodes of the AD network from EC to V1. 
 ```{r}
-load(file = file.path(data_dir, "Fig3_data", "pathall_clust.RData"))
-
 gene_trends = pathall_clust$dt[, .(gene, ave_zscore_donor, Region, cluster)] %>% unique()
 gene_trends = gene_trends[!(grepl("MT-", gene)),]
 gene_trends[, ave_zscore_cluster := mean(ave_zscore_donor), by = .(cluster, Region)]
 gene_trends_cluster = gene_trends[, .(gene, ave_zscore_cluster, Region, cluster)] %>% unique()
-
 
 # rename the clusters
 gene_trends_N<-gene_trends[Region=="EC", .N, by=.(cluster)]
@@ -175,7 +176,6 @@ rename_dt = data.table(
   regional_EC = c("high", "low", "ns", "high", "low", "ns"),
   regional_V1 = c("low", "high", "ns", "high", "low", "high")
 )
-
 
 p_line = ggplot(
   gene_trends,
@@ -203,7 +203,7 @@ p_line = ggplot(
     "#FAE442", "#9C4F96"))
 
 p_line
-ggsave(file.path(rdir, "Fig3", "fig3a-gene-trajectories.png"), width = 5, height = 6)
+ggsave(file.path("../Results", "Fig3", "fig3a-gene-trajectories.png"), width = 5, height = 6)
 
 # add color bar
 figure_annot = function(rename_dt, annot_col, annot_title, no_strip_text = T){
@@ -239,26 +239,17 @@ regionEC_annot = figure_annot(rename_dt, "regional_EC", "EC")
 regionV1_annot = figure_annot(rename_dt, "regional_V1", "V1")
 ggarrange(p_line , pTau_annot, NULL, abeta_annot, NULL, regionEC_annot, NULL, regionV1_annot, NULL, align = "h", ncol = 9, nrow = 1, widths = c(1, 0.09, 0.01, 0.09, 0.01, 0.09, 0.01, 0.09, 0.005))
 
-ggsave(filename = file.path(rdir, "AD progression", 
+ggsave(filename = file.path("../Results", "AD progression", 
                             "fig3a_with_colorbar.png"), height = 14, width = 4)
 
-# make wide format. 
-
-
-
 trends_gene = reshape(gene_trends, idvar = "gene", timevar = "Region", direction = 'wide')
-
-fwrite(trends_gene, "spatial_gene_sets.csv")
-
 ```
 
-# Pathway analysis: 
+Pathway analysis: 
+Pathways analysis was done on gsea web tool https://www.gsea-msigdb.org/gsea/msigdb/annotate.jsp  and the .csv files were generated. Selected pathways were plotted in Figure 3b
 
-Pathways analysis was done on gsea web tool https://www.gsea-msigdb.org/gsea/msigdb/annotate.jsp  and the .csv files were generated. Selected pathways were plotted in Fig 3b
-
-
+Figure 3b:
 Functional characterization of each spatial trajectory gene set via pathway analysis
-
 ```{r}
 barplot<- function(pathways, 
                    color, 
@@ -314,7 +305,7 @@ barplot<- function(pathways,
 }
 
 
-allcluster <- fread("../Data/Fig3_data/allclusters_SP_asp.csv")
+allcluster <- fread("Example_Data/allclusters_SP_asp.csv")
 
 
 allcluster[, new_name := paste0("gene set #", geneset)]
@@ -332,8 +323,5 @@ bar_6 = barplot(allcluster[geneset == 6], "#9C4F96", 0.8, 0.5, 0.1, 5, 1)
 
 bars = ggarrange(bar_1, bar_2, bar_3, bar_4, bar_5, bar_6, 
           ncol = 1, align = "hv")
-bars
-ggsave(bars, filename = file.path(rdir,  "Fig3", "all_bars_SP.png"), width = 15, height = 30)
-
 ```
 
