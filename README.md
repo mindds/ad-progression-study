@@ -6,7 +6,7 @@ Note:
 Data required to run the scripts is located in the ./Example_data directory of this github repository. If the data is not available, we will give the required data upon request. 
 
 
-## Annotation of cell types:
+## Annotation of cell types
 The script cell_type_annotation.Rmd has the required code to plot figure 1b in the manuscrip, which is the UMAP clustering of the cell types and violin plots to visualize the expression of marker genes of the cell types.
 
 ##### Input data:
@@ -20,7 +20,7 @@ The regional_astrocyte_heterogeneity.Rmd script performs differential expression
 rPCA integrated astrocytes as a Seurat object (.Rdata) for differential expression (data will be available upon request).
 
 
-## Spatio-temporal progression of Alzheimer's disease. 
+## Spatio-temporal progression of Alzheimer's disease
 The spatial_trajectory.Rmd perform clustering of the 504 DEGs between any two “adjacent” nodes of the AD network from EC to V1. It also has the code to generate Fig 3 in the manuscriptThe temporal_trajectory.Rmd performs clustering the n=798 DEGs between any two “adjacent” pathology stages from early to end-stage. 
 
 ##### Input data:
