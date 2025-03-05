@@ -3,7 +3,7 @@ A single-nucleus transcriptomics study of 629,755 astrocytes from five brain reg
 Link to manuscript: 
 
 Note:  
-Data required to run the scripts is located in the ./Example_data directory of this github repository. If the data is not available, we will give the required data upon request. 
+Data required to run the scripts is located in the ./Example_data directory of this github repository. The full dataset is available publicly, you can check the Data Availability section of our paper: https://pubmed.ncbi.nlm.nih.gov/39528672/
 
 
 ## Annotation of cell types
